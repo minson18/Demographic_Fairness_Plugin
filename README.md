@@ -1,42 +1,75 @@
- 	
+# CARCA (PyTorch Migration)
+
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/sequential-recommendation-on-amazon-men)](https://paperswithcode.com/sota/sequential-recommendation-on-amazon-men?p=carca-context-and-attribute-aware-next-item)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-games)](https://paperswithcode.com/sota/recommendation-systems-on-amazon-games?p=carca-context-and-attribute-aware-next-item)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-fashion)](https://paperswithcode.com/sota/recommendation-systems-on-amazon-fashion?p=carca-context-and-attribute-aware-next-item)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-beauty)](https://paperswithcode.com/sota/recommendation-systems-on-amazon-beauty?p=carca-context-and-attribute-aware-next-item)
 
-# CARCA
+---
 
-This is our implementation for the CARCA paper accepted at RecSys 2022 
-https://dl.acm.org/doi/10.1145/3523227.3546777:
+## About This Repository
 
-Rashed, Ahmed, et al. "Context and Attribute-Aware Sequential Recommendation via Cross-Attention"
+**This codebase is modified from the official [CARCA](https://github.com/ahmedrashed57/CARCA) repository, but has been fully migrated from TensorFlow to PyTorch. All model logic, data processing, and training routines are now implemented using PyTorch 2.x, with support for Python 3.12 and NumPy >2.0.**
 
-Please cite our paper if you use the code or datasets.
+Original paper: [Context and Attribute-Aware Sequential Recommendation via Cross-Attention (RecSys 2022)](https://dl.acm.org/doi/10.1145/3523227.3546777)
 
-## Enviroment 
-	* pandas==1.0.3
-	* tensorflow==1.14.0
-	* matplotlib==3.1.3
-	* numpy==1.18.1
-	* six==1.14.0
-	* scikit_learn==0.23.1
-	
-## Steps
-1) Download preprocessed data from here "https://drive.google.com/drive/folders/1a_u52mIEUA-1WrwsNZZa-aoGJcMmVugs?usp=sharing" or the raw data from "https://jmcauley.ucsd.edu/data/amazon/"
+If you use this code or datasets, please cite the original paper.
 
-2) Add the data files inside the "Data/" folder
+---
 
-3) To run the respective dataset, please use the below commands
-- python CARCA.py 'Video_Games'
-- python CARCA.py 'Men'
-- python CARCA.py 'Beauty'
-- python CARCA.py 'Fashion'
+## Setup
 
-4) To preprocess raw Amazon reviews data, please use the DataProcessing.py and put the reviews and metadata in the RawData folder. Also, generate the context dictionaries using the commented section in the CARCA.py
+Install all dependencies using:
 
-5) To preprocess the Men and Fashion image features from scratch you will need to download all products images and pass them through a pre-trained resnet 50 model. Then match them using their ASIN code with the reviews data.
+```bash
+pip install -r requirements.txt
+```
 
+---
 
+## Data Preparation
 
-## Important Note
-If you are planning to apply CARCA on datasets without attributes or context, it is advisable to use rolling window protocol for training the model as the current training protocol (right shifted input) might not be stable in those scenarios.
+1. Download preprocessed data from [Google Drive](https://drive.google.com/drive/folders/1a_u52mIEUA-1WrwsNZZa-aoGJcMmVugs?usp=sharing) or the raw data from [Amazon Review Data](https://jmcauley.ucsd.edu/data/amazon/).
+2. Place the data files inside the `Data/` folder (which is ignored by git).
+
+---
+
+## Usage
+
+Train the model on a dataset (e.g., Beauty):
+
+```bash
+python train.py --dataset Beauty
+```
+
+You can adjust hyperparameters via command-line arguments (see `train.py`).
+
+---
+
+## Features
+- PyTorch 2.x, Python 3.12, NumPy >2.0 compatible
+- User feature support (see `get_UserData*` in `data_utils.py`)
+- Transformer-based sequential recommendation
+- Context and item features
+- Modern, modular code structure
+
+---
+
+## File Structure
+- `data_utils.py`: Data loading and feature extraction
+- `dataset.py`: PyTorch Dataset/DataLoader
+- `model.py`: Model definition (PyTorch)
+- `train.py`: Training loop
+- `requirements.txt`: Dependencies
+- `.gitignore`: Ignores the `Data/` folder
+
+---
+
+## Credits
+- This repository is a PyTorch migration of the official [CARCA](https://github.com/ahmedrashed57/CARCA) codebase.
+- Original authors: Ahmed Rashed, et al.
+- Migration and modernization by [your name or organization].
+
+---
+
+**Note:** This repo is a direct migration from TensorFlow 1.x to PyTorch 2.x, with modern idioms and user feature support. For preprocessing raw Amazon reviews or image features, refer to the original CARCA repo and adapt as needed.
