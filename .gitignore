@@ -49,7 +49,6 @@ logs/
 *.csv
 *.json
 *.jsonl
-*.txt
 *.dat
 *.npy
 *.npz

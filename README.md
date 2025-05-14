@@ -31,6 +31,7 @@ pip install -r requirements.txt
 
 1. Download preprocessed data from [Google Drive](https://drive.google.com/drive/folders/1a_u52mIEUA-1WrwsNZZa-aoGJcMmVugs?usp=sharing) or the raw data from [Amazon Review Data](https://jmcauley.ucsd.edu/data/amazon/).
 2. Place the data files inside the `Data/` folder (which is ignored by git).
+3. MovieLens 1M Dataset can be downloaded here [ml-1m](https://grouplens.org/datasets/movielens/1m/).
 
 ---
 
