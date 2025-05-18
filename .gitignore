@@ -58,6 +58,6 @@ logs/
 .coverage
 htmlcov/
 
-/home/user/fintech/Fintech_Final_Project/CARCA_Code_and_Data.zip
+*.zip
 
 
