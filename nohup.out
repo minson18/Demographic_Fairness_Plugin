@@ -1,0 +1,7 @@
+remote: error: Trace: c31a769dc6c2c83a260f92fc82b638b5a20aed2a978e1e7903b85e8f369c5695        
+remote: error: See https://gh.io/lfs for more information.        
+remote: error: File CARCA_Code_and_Data.zip is 1979.51 MB; this exceeds GitHub's file size limit of 100.00 MB        
+remote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+To https://github.com/minson0218/Fintech_Final_Project.git
+ ! [remote rejected] CUFRL -> CUFRL (pre-receive hook declined)
+error: failed to push some refs to 'https://github.com/minson0218/Fintech_Final_Project.git'
