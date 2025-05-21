@@ -20,7 +20,7 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[: x.size(1)]
 
 
-class SequentialRecModel(nn.Module):
+class CARCA(nn.Module):
     def __init__(
         self, usernum, itemnum, args, item_feature_dim, user_feature_dim, cxt_size
     ):
@@ -56,6 +56,11 @@ class SequentialRecModel(nn.Module):
             ]
         )
         self.final_linear = nn.Linear(self.hidden_units, 1)
+        self.attn = nn.MultiheadAttention(
+            self.hidden_units,
+            num_heads=args.num_heads,
+            batch_first=True,
+        )
 
     def forward(
         self,
@@ -108,13 +113,13 @@ class SequentialRecModel(nn.Module):
         neg_feat_emb = self.item_feat_proj(neg_feat_in)
         neg_concat = torch.cat([neg_emb, neg_feat_emb], dim=-1)
         neg_out = self.emb_comp(neg_concat)
-        # Optionally, add user embedding to sequence/item representations
-        # (broadcast user_emb to (batch, maxlen, hidden_units) and add)
         user_emb_exp = user_emb.unsqueeze(1).expand(-1, self.maxlen, -1)
         seq_out = seq_out + user_emb_exp
         pos_out = pos_out + user_emb_exp
         neg_out = neg_out + user_emb_exp
-        # Compute logits (dot product or MLP)
-        pos_logits = (seq_out * pos_out).sum(-1)
-        neg_logits = (seq_out * neg_out).sum(-1)
+        # Use the registered attention layer
+        pos_attn_out, _ = self.attn(pos_out, seq_out, seq_out)
+        pos_logits = self.final_linear(pos_attn_out).squeeze(-1)
+        neg_attn_out, _ = self.attn(neg_out, seq_out, seq_out)
+        neg_logits = self.final_linear(neg_attn_out).squeeze(-1)
         return pos_logits, neg_logits
