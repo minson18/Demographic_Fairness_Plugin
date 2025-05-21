@@ -13,6 +13,7 @@ class SequentialRecDataset(Dataset):
         cxtsize,
         maxlen,
         item_features,
+        sensitive_attributes=None,
     ):
         self.user_train = user_train
         self.user_features = user_features
@@ -24,6 +25,7 @@ class SequentialRecDataset(Dataset):
         self.item_features = (
             item_features  # numpy array, shape: (itemnum+1, feature_dim)
         )
+        self.sensitive_attributes = sensitive_attributes
 
     def __len__(self):
         return len(self.users)
@@ -70,6 +72,11 @@ class SequentialRecDataset(Dataset):
         seq_feat = self.item_features[seq]
         pos_feat = self.item_features[pos]
         neg_feat = self.item_features[neg]
+
+        user_sensitive_attrs = np.zeros(1, dtype=np.float32)
+        if self.sensitive_attributes is not None and user < len(self.sensitive_attributes):
+            user_sensitive_attrs = self.sensitive_attributes[user]
+
         return {
             "user": user,
             "user_feat": torch.tensor(user_feat, dtype=torch.float32),
@@ -82,6 +89,7 @@ class SequentialRecDataset(Dataset):
             "neg": torch.tensor(neg, dtype=torch.long),
             "neg_feat": torch.tensor(neg_feat, dtype=torch.float32),
             "negcxt": torch.tensor(negcxt, dtype=torch.float32),
+            "sensitive_attrs": torch.tensor(user_sensitive_attrs, dtype=torch.float32),
         }
 
 
@@ -94,11 +102,12 @@ def get_dataloader(
     maxlen,
     batch_size,
     item_features,
+    sensitive_attributes=None,
     shuffle=True,
     num_workers=0,
 ):
     dataset = SequentialRecDataset(
-        user_train, user_features, itemnum, cxtdict, cxtsize, maxlen, item_features
+        user_train, user_features, itemnum, cxtdict, cxtsize, maxlen, item_features, sensitive_attributes
     )
     return DataLoader(
         dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers

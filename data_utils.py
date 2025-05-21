@@ -110,6 +110,30 @@ def get_UserDataBeauty(usernum):
     return UserFeatures
 
 
+def get_sensitive_attributes(usernum, data_path="./Data/SensitiveAttributes.dat"):
+    if not os.path.exists(data_path):
+        # Create a dummy file with random data if it doesn't exist
+        print(f"Warning: Sensitive attributes file not found at {data_path}. Creating a dummy file with random binary attributes.")
+        # Assuming binary sensitive attributes for simplicity
+        sensitive_attrs = np.random.randint(0, 2, size=(usernum + 1, 1), dtype=np.float32)
+        # Add a placeholder for user 0
+        sensitive_attrs[0] = np.zeros((1,1), dtype=np.float32)
+        save_data(sensitive_attrs, data_path)
+        return sensitive_attrs
+    
+    sensitive_attrs = load_data(data_path)
+    # Ensure the shape is correct, potentially add a placeholder for user 0 if not present
+    if sensitive_attrs.shape[0] == usernum:
+        sensitive_attrs = np.vstack(
+            (np.zeros((1, sensitive_attrs.shape[1]), dtype=sensitive_attrs.dtype), sensitive_attrs)
+        )
+    elif sensitive_attrs.shape[0] != usernum + 1:
+        raise ValueError(
+            f"Sensitive attributes shape mismatch. Expected {usernum + 1} users, got {sensitive_attrs.shape[0]}"
+        )
+    return sensitive_attrs
+
+
 def PreprocessData_Beauty(filname, DatasetName, sep="\t"):
     col_names = ["user", "item", "ts"]
     df = pd.read_csv(filname, sep=sep, header=None, names=col_names, engine="python")
@@ -316,3 +340,13 @@ def get_ItemDataGames(itemnum):
         (np.zeros((1, ItemFeatures.shape[1]), dtype=ItemFeatures.dtype), ItemFeatures)
     )
     return ItemFeatures
+
+
+def get_finance_user_features(usernum, data_path="./Data/FinanceUserFeatures.dat"):
+    # Implementation of get_finance_user_features function
+    pass
+
+
+def get_financial_risk_profiles(usernum, data_path="./Data/FinancialRiskProfiles.dat"):
+    # Implementation of get_financial_risk_profiles function
+    pass

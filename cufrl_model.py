@@ -4,6 +4,44 @@ import torch.nn.functional as F
 import math
 
 
+class MutualInformationEstimationNetwork(nn.Module):
+    def __init__(self, user_feature_dim, sensitive_attribute_dim, hidden_dim, representation_dim):
+        super().__init__()
+        # Encoder: Process user_data (x) and sensitive_attributes (C^U)
+        self.encoder_user = nn.Linear(user_feature_dim, hidden_dim)
+        self.encoder_sensitive = nn.Linear(sensitive_attribute_dim, hidden_dim)
+        self.encoder_combined = nn.Linear(hidden_dim * 2, representation_dim) # Output Z
+
+        # Decoder: Reconstruct sensitive_attributes from Z
+        self.decoder = nn.Sequential(
+            nn.Linear(representation_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, sensitive_attribute_dim)
+        )
+        
+        # For fairness objectives (predicting sensitive attributes from Z)
+        self.fairness_predictor = nn.Sequential(
+            nn.Linear(representation_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, sensitive_attribute_dim)
+        )
+
+    def forward(self, user_data, sensitive_attributes):
+        # Encode
+        user_encoded = F.relu(self.encoder_user(user_data))
+        sensitive_encoded = F.relu(self.encoder_sensitive(sensitive_attributes))
+        combined = torch.cat((user_encoded, sensitive_encoded), dim=-1)
+        z = self.encoder_combined(combined) # User representations Z
+
+        # Decode (for reconstruction loss)
+        reconstructed_sensitive_attributes = self.decoder(z)
+        
+        # Fairness prediction (for fairness loss)
+        predicted_sensitive_attributes = self.fairness_predictor(z)
+
+        return z, reconstructed_sensitive_attributes, predicted_sensitive_attributes
+
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=500):
         super().__init__()
@@ -64,15 +102,27 @@ class RiskAwareLayer(nn.Module):
 class CUFRLModel(nn.Module):
     def __init__(
         self, usernum, itemnum, args, item_feature_dim, user_feature_dim, cxt_size, 
-        financial_feature_dim=0
+        financial_feature_dim=0,
+        sensitive_attribute_dim=1 # Assuming sensitive_attribute_dim is 1 by default
     ):
         super().__init__()
         self.hidden_units = args.hidden_units
         self.maxlen = args.maxlen
         self.cxt_size = cxt_size
+        self.user_feature_dim = user_feature_dim # Store user_feature_dim
+
+        # Mutual Information Estimation Network
+        self.mi_estimation_network = MutualInformationEstimationNetwork(
+            user_feature_dim=user_feature_dim,
+            sensitive_attribute_dim=sensitive_attribute_dim,
+            hidden_dim=args.hidden_units, # Or another hyperparameter
+            representation_dim=args.hidden_units # Output Z should match hidden_units for further processing
+        )
         
         # User embeddings with financial profile
-        self.user_embedding = nn.Linear(user_feature_dim, self.hidden_units)
+        # The user_embedding will now be derived from Z (output of MI Estimation Network)
+        # self.user_embedding = nn.Linear(user_feature_dim, self.hidden_units) 
+        
         self.financial_profile_encoder = nn.Linear(
             financial_feature_dim if financial_feature_dim > 0 else user_feature_dim, 
             self.hidden_units
@@ -134,7 +184,8 @@ class CUFRLModel(nn.Module):
         
     def forward(
         self,
-        user_feat,
+        user_feat, # This is the original user data (x)
+        sensitive_attrs, # Sensitive attributes (C^U)
         seq,
         seq_feat,
         seq_cxt,
@@ -147,15 +198,25 @@ class CUFRLModel(nn.Module):
         financial_features=None,
     ):
         batch_size = seq.size(0)
+
+        # Get user representations (Z) and other outputs from MI Estimation Network
+        # user_feat is x, sensitive_attrs is C^U
+        user_representations_z, reconstructed_sensitive_attrs, fairness_predicted_sensitive_attrs = \
+            self.mi_estimation_network(user_feat, sensitive_attrs)
         
-        # User embedding and financial profile
-        user_emb = self.user_embedding(user_feat)  # (batch, hidden_units)
+        # user_emb is now user_representations_z
+        user_emb = user_representations_z # (batch, hidden_units) 
         
         # If financial features are provided, use them; otherwise, derive from user features
+        # This part might need adjustment if financial_profile is also part of Z
+        # For now, let's assume financial_profile is still processed separately or can be derived from user_feat
         if financial_features is not None:
             financial_profile = self.financial_profile_encoder(financial_features)
         else:
-            financial_profile = self.financial_profile_encoder(user_feat)
+            # If financial_features are not directly provided, 
+            # consider if they should be part of user_feat fed into MI network,
+            # or if a separate path is needed. For now, using original user_feat.
+            financial_profile = self.financial_profile_encoder(user_feat) 
         
         # Item sequence embeddings
         seq_emb = self.item_embedding(seq)  # (batch, maxlen, hidden_units)
@@ -217,4 +278,4 @@ class CUFRLModel(nn.Module):
         pos_logits = (seq_out * pos_out).sum(-1)
         neg_logits = (seq_out * neg_out).sum(-1)
         
-        return pos_logits, neg_logits 
+        return pos_logits, neg_logits, reconstructed_sensitive_attrs, fairness_predicted_sensitive_attrs 

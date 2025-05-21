@@ -7,6 +7,15 @@ import argparse
 from data_utils import *
 from dataset import get_dataloader
 from cufrl_model import CUFRLModel
+import torch.nn.functional as F
+
+
+def fairness_loss_fn(fairness_predicted_sensitive_attrs, sensitive_attrs, reduction='mean'):
+    return F.binary_cross_entropy_with_logits(fairness_predicted_sensitive_attrs, sensitive_attrs.float(), reduction=reduction)
+
+
+def reconstruction_loss_fn(reconstructed_sensitive_attrs, sensitive_attrs, reduction='mean'):
+    return F.binary_cross_entropy_with_logits(reconstructed_sensitive_attrs, sensitive_attrs.float(), reduction=reduction)
 
 
 def bce_loss(pos_logits, neg_logits):
@@ -26,7 +35,7 @@ def risk_aware_loss(pos_logits, neg_logits, risk_weights):
     return loss.sum() / istarget.sum()
 
 
-def train_one_epoch(model, dataloader, optimizer, device, use_risk_weights=False):
+def train_one_epoch(model, dataloader, optimizer, device, use_risk_weights=False, fairness_lambda=0.1, reconstruction_lambda=0.1):
     model.train()
     total_loss = 0
     for batch in tqdm(dataloader, desc="Train", leave=False):
@@ -38,9 +47,11 @@ def train_one_epoch(model, dataloader, optimizer, device, use_risk_weights=False
         
         # Determine if we have financial features in the batch
         financial_features = batch.get("financial_features", None)
+        sensitive_attrs = batch.get("sensitive_attrs", None)
         
-        pos_logits, neg_logits = model(
+        pos_logits, neg_logits, reconstructed_sensitive_attrs, fairness_predicted_sensitive_attrs = model(
             batch["user_feat"],
+            sensitive_attrs,
             batch["seq"],
             batch["seq_feat"],
             batch["seqcxt"],
@@ -54,9 +65,21 @@ def train_one_epoch(model, dataloader, optimizer, device, use_risk_weights=False
         )
         
         if use_risk_weights and "risk_weights" in batch:
-            loss = risk_aware_loss(pos_logits, neg_logits, batch["risk_weights"])
+            recommendation_loss = risk_aware_loss(pos_logits, neg_logits, batch["risk_weights"])
         else:
-            loss = bce_loss(pos_logits, neg_logits)
+            recommendation_loss = bce_loss(pos_logits, neg_logits)
+        
+        # Calculate fairness and reconstruction losses
+        fairness_loss = torch.tensor(0.0).to(device)
+        if fairness_predicted_sensitive_attrs is not None and sensitive_attrs is not None:
+            fairness_loss = fairness_loss_fn(fairness_predicted_sensitive_attrs, sensitive_attrs)
+
+        reconstruction_loss_val = torch.tensor(0.0).to(device)
+        if reconstructed_sensitive_attrs is not None and sensitive_attrs is not None:
+            reconstruction_loss_val = reconstruction_loss_fn(reconstructed_sensitive_attrs, sensitive_attrs)
+
+        # Combine losses
+        loss = recommendation_loss + fairness_lambda * fairness_loss + reconstruction_lambda * reconstruction_loss_val
             
         loss.backward()
         optimizer.step()
@@ -80,6 +103,9 @@ def main():
     parser.add_argument("--cxt_size", type=int, default=10)  # Enhanced context size
     parser.add_argument("--use_risk", type=bool, default=True)  # Use risk-aware loss
     parser.add_argument("--use_financial_features", type=bool, default=True)
+    parser.add_argument("--sensitive_attribute_dim", type=int, default=1)
+    parser.add_argument("--fairness_lambda", type=float, default=0.1)
+    parser.add_argument("--reconstruction_lambda", type=float, default=0.1)
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -95,6 +121,7 @@ def main():
         UserFeatures = get_finance_user_features(usernum)
         FinancialFeatures = get_financial_risk_profiles(usernum) if args.use_financial_features else None
         CXTDict = load_data("./Data/CXTDictFinance.dat")
+        SensitiveAttributes = get_sensitive_attributes(usernum)
     else:
         # Fall back to existing datasets
         if args.dataset == "Beauty":
@@ -116,6 +143,7 @@ def main():
         else:
             raise ValueError("Unknown dataset")
         FinancialFeatures = None
+        SensitiveAttributes = get_sensitive_attributes(usernum)
 
     # Create dataloader with financial features if available
     dataloader = get_financial_dataloader(
@@ -128,6 +156,7 @@ def main():
         args.batch_size,
         ItemFeatures,
         FinancialFeatures,
+        SensitiveAttributes,
     ) if args.dataset == "Finance" else get_dataloader(
         user_train,
         UserFeatures,
@@ -137,10 +166,12 @@ def main():
         args.maxlen,
         args.batch_size,
         ItemFeatures,
+        SensitiveAttributes,
     )
 
     # Initialize the CUFRL model
     financial_feature_dim = FinancialFeatures.shape[1] if FinancialFeatures is not None else 0
+    sensitive_attribute_dim = SensitiveAttributes.shape[1] if SensitiveAttributes is not None else 0
     model = CUFRLModel(
         usernum,
         itemnum,
@@ -149,12 +180,13 @@ def main():
         UserFeatures.shape[1],
         args.cxt_size,
         financial_feature_dim,
+        sensitive_attribute_dim,
     ).to(args.device)
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.l2_emb)
 
     for epoch in range(1, args.num_epochs + 1):
-        loss = train_one_epoch(model, dataloader, optimizer, args.device, args.use_risk)
+        loss = train_one_epoch(model, dataloader, optimizer, args.device, args.use_risk, args.fairness_lambda, args.reconstruction_lambda)
         print(f"Epoch {epoch}, Loss: {loss:.4f}")
 
     # Save the trained model
