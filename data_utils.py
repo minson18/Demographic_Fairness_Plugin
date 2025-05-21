@@ -19,6 +19,48 @@ def save_data(data, filename):
         pickle.dump(data, f)
 
 
+def load_sensitive_attributes(dataset_name, train_user_ids, cxt_dict, default_attribute_index=0, sensitive_feature_idx=0):
+    """
+    從現有的上下文特徵（CXTDict）中提取敏感屬性。
+    
+    Args:
+        dataset_name: 數據集名稱
+        train_user_ids: 訓練集中的用戶ID
+        cxt_dict: 上下文特徵字典，格式為{(user_id, item_id): [feature1, feature2, ...]}
+        default_attribute_index: 默認屬性索引，如果用戶沒有上下文特徵
+        sensitive_feature_idx: 要用作敏感屬性的上下文特徵索引
+    
+    Returns:
+        sensitive_attributes_map: 用戶ID到敏感屬性的映射
+        num_sensitive_categories: 敏感屬性類別數量
+    """
+    sensitive_attributes_map = {}
+    
+    # 初始化所有訓練用戶的默認屬性
+    for user_id in train_user_ids:
+        sensitive_attributes_map[user_id] = default_attribute_index
+    
+    # 累計所有可能的敏感屬性值
+    all_sensitive_values = set()
+    
+    # 對於每個(user_id, item_id)，提取相應的上下文特徵
+    for (user_id, item_id), features in cxt_dict.items():
+        if user_id in train_user_ids and len(features) > sensitive_feature_idx:
+            # 將連續的特徵值轉換為離散類別
+            # 這裡使用一個簡單的方法：將[0,1]範圍內的值轉換為2個類別
+            # 可以根據需要調整分類方法
+            feature_value = features[sensitive_feature_idx]
+            category = int(feature_value >= 0.5)  # 簡單二分類：>= 0.5為1類，< 0.5為0類
+            sensitive_attributes_map[user_id] = category
+            all_sensitive_values.add(category)
+    
+    # 計算敏感屬性類別數量
+    num_sensitive_categories = max(len(all_sensitive_values), 1)
+    
+    print(f"從上下文特徵提取了{len(sensitive_attributes_map)}個用戶的敏感屬性。找到{num_sensitive_categories}個唯一類別。")
+    return sensitive_attributes_map, num_sensitive_categories
+
+
 def data_partition(fname):
     usernum = 0
     itemnum = 0
