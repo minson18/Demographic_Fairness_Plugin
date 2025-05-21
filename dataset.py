@@ -1,6 +1,8 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import os
+import pickle
 
 
 class SequentialRecDataset(Dataset):
@@ -13,6 +15,7 @@ class SequentialRecDataset(Dataset):
         cxtsize,
         maxlen,
         item_features,
+        itemid2idx=None,
     ):
         self.user_train = user_train
         self.user_features = user_features
@@ -21,12 +24,23 @@ class SequentialRecDataset(Dataset):
         self.cxtsize = cxtsize
         self.maxlen = maxlen
         self.users = list(user_train.keys())
-        self.item_features = (
-            item_features  # numpy array, shape: (itemnum+1, feature_dim)
-        )
+        self.item_features = item_features
+        self.itemid2idx = itemid2idx
+        # Create user ID to index mapping (for 1-based user IDs)
+        self.userid2idx = {
+            uid: idx for idx, uid in enumerate(range(1, len(user_features) + 1))
+        }
+
+    def _map_userid(self, userid):
+        return self.userid2idx.get(userid, 0)
 
     def __len__(self):
         return len(self.users)
+
+    def _map_itemid(self, itemid):
+        if self.itemid2idx is not None:
+            return self.itemid2idx.get(itemid, 0)
+        return itemid
 
     def __getitem__(self, idx):
         user = self.users[idx]
@@ -41,14 +55,14 @@ class SequentialRecDataset(Dataset):
         nxt = user_seq[-1]
         idx_ = self.maxlen - 1
         for i in reversed(user_seq[:-1]):
-            seq[idx_] = i
-            pos[idx_] = nxt
+            seq[idx_] = self._map_itemid(i)
+            pos[idx_] = self._map_itemid(nxt)
             neg_i = 0
             if nxt != 0:
-                neg_i = np.random.randint(1, self.itemnum + 1)
-                while neg_i in ts:
-                    neg_i = np.random.randint(1, self.itemnum + 1)
-                neg[idx_] = neg_i
+                neg_i_raw = np.random.randint(1, self.itemnum + 1)
+                while neg_i_raw in ts:
+                    neg_i_raw = np.random.randint(1, self.itemnum + 1)
+                neg[idx_] = self._map_itemid(neg_i_raw)
             seqcxt[idx_] = self.cxtdict.get(
                 (user, i), np.zeros(self.cxtsize, dtype=np.float32)
             )
@@ -63,7 +77,7 @@ class SequentialRecDataset(Dataset):
             if idx_ == -1:
                 break
         user_feat = (
-            self.user_features[user]
+            self.user_features[self._map_userid(user)]
             if len(self.user_features) > 0
             else np.zeros(self.user_features.shape[1], dtype=np.float32)
         )
@@ -94,12 +108,162 @@ def get_dataloader(
     maxlen,
     batch_size,
     item_features,
+    itemid2idx=None,
     shuffle=True,
     num_workers=0,
 ):
     dataset = SequentialRecDataset(
-        user_train, user_features, itemnum, cxtdict, cxtsize, maxlen, item_features
+        user_train,
+        user_features,
+        itemnum,
+        cxtdict,
+        cxtsize,
+        maxlen,
+        item_features,
+        itemid2idx,
     )
     return DataLoader(
         dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
     )
+
+
+def load_dataset(dataset_name, maxlen=50, data_dir=None, cxt_size=6):
+    """
+    Unified loader for CARCA datasets.
+    dataset_name: 'ml-1m', 'Beauty', 'Men', 'Fashion', 'Video_Games'
+    maxlen: sequence length
+    data_dir: path to preprocessed data (for ml-1m)
+    cxt_size: context feature size for Amazon datasets
+    Returns: user_train, user_features, itemnum, cxtdict, cxtsize, maxlen, item_features, usernum
+    """
+    import numpy as np
+    import os, pickle
+
+    if dataset_name == "ml-1m":
+        if data_dir is None:
+            data_dir = "Data/movielens_preprocessed"
+        with open(os.path.join(data_dir, "user_train.pkl"), "rb") as f:
+            user_train = pickle.load(f)
+        user_features = np.load(os.path.join(data_dir, "user_features.npy"))
+        item_features = np.load(os.path.join(data_dir, "item_features.npy"))
+        with open(os.path.join(data_dir, "cxtdict.pkl"), "rb") as f:
+            cxtdict = pickle.load(f)
+        with open(os.path.join(data_dir, "cxtsize.txt")) as f:
+            cxtsize = int(f.read().strip())
+        with open(os.path.join(data_dir, "itemid2idx.pkl"), "rb") as f:
+            itemid2idx = pickle.load(f)
+        itemnum = item_features.shape[0]
+        usernum = user_features.shape[0]
+        return (
+            user_train,
+            user_features,
+            itemnum,
+            cxtdict,
+            cxtsize,
+            maxlen,
+            item_features,
+            usernum,
+            itemid2idx,
+        )
+    elif dataset_name == "Beauty":
+        from data_utils import (
+            data_partition,
+            get_ItemDataBeauty,
+            get_UserDataBeauty,
+            load_data,
+        )
+
+        dataset = data_partition("Beauty")
+        user_train, user_valid, user_test, usernum, itemnum = dataset
+        item_features = get_ItemDataBeauty(itemnum)
+        user_features = get_UserDataBeauty(usernum)
+        cxtdict = load_data("./Data/CXTDictSasRec_Beauty.dat")
+        cxtsize = cxt_size
+        return (
+            user_train,
+            user_features,
+            itemnum,
+            cxtdict,
+            cxtsize,
+            maxlen,
+            item_features,
+            usernum,
+            None,
+        )
+    elif dataset_name == "Men":
+        from data_utils import (
+            data_partition,
+            get_ItemDataMen,
+            get_UserDataMen,
+            load_data,
+        )
+
+        dataset = data_partition("Men")
+        user_train, user_valid, user_test, usernum, itemnum = dataset
+        item_features = get_ItemDataMen(itemnum)
+        user_features = get_UserDataMen(usernum)
+        cxtdict = load_data("./Data/CXTDictSasRec_Men.dat")
+        cxtsize = cxt_size
+        return (
+            user_train,
+            user_features,
+            itemnum,
+            cxtdict,
+            cxtsize,
+            maxlen,
+            item_features,
+            usernum,
+            None,
+        )
+    elif dataset_name == "Fashion":
+        from data_utils import (
+            data_partition,
+            get_ItemDataFashion,
+            get_UserDataFashion,
+            load_data,
+        )
+
+        dataset = data_partition("Fashion")
+        user_train, user_valid, user_test, usernum, itemnum = dataset
+        item_features = get_ItemDataFashion(itemnum)
+        user_features = get_UserDataFashion(usernum)
+        cxtdict = load_data("./Data/CXTDictSasRec_Fashion.dat")
+        cxtsize = cxt_size
+        return (
+            user_train,
+            user_features,
+            itemnum,
+            cxtdict,
+            cxtsize,
+            maxlen,
+            item_features,
+            usernum,
+            None,
+        )
+    elif dataset_name == "Video_Games":
+        from data_utils import (
+            data_partition,
+            get_ItemDataGames,
+            get_UserDataFashion,
+            load_data,
+        )
+
+        dataset = data_partition("Video_Games")
+        user_train, user_valid, user_test, usernum, itemnum = dataset
+        item_features = get_ItemDataGames(itemnum)
+        user_features = get_UserDataFashion(usernum)
+        cxtdict = load_data("./Data/CXTDictSasRec_Games.dat")
+        cxtsize = cxt_size
+        return (
+            user_train,
+            user_features,
+            itemnum,
+            cxtdict,
+            cxtsize,
+            maxlen,
+            item_features,
+            usernum,
+            None,
+        )
+    else:
+        raise ValueError("Unknown dataset: {}".format(dataset_name))

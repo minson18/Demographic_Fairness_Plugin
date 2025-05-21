@@ -5,7 +5,7 @@ from tqdm import tqdm
 import numpy as np
 import argparse
 from data_utils import *
-from dataset import get_dataloader
+from dataset import get_dataloader, load_dataset
 from model import SequentialRecModel
 
 
@@ -64,46 +64,38 @@ def main():
     )
     args = parser.parse_args()
 
-    # Data loading
-    dataset = data_partition(args.dataset)
-    user_train, user_valid, user_test, usernum, itemnum = dataset
-    if args.dataset == "Beauty":
-        ItemFeatures = get_ItemDataBeauty(itemnum)
-        UserFeatures = get_UserDataBeauty(usernum)
-        CXTDict = load_data("./Data/CXTDictSasRec_Beauty.dat")
-    elif args.dataset == "Men":
-        ItemFeatures = get_ItemDataMen(itemnum)
-        UserFeatures = get_UserDataMen(usernum)
-        CXTDict = load_data("./Data/CXTDictSasRec_Men.dat")
-    elif args.dataset == "Fashion":
-        ItemFeatures = get_ItemDataFashion(itemnum)
-        UserFeatures = get_UserDataFashion(usernum)
-        CXTDict = load_data("./Data/CXTDictSasRec_Fashion.dat")
-    elif args.dataset == "Video_Games":
-        ItemFeatures = get_ItemDataGames(itemnum)
-        UserFeatures = get_UserDataFashion(usernum)
-        CXTDict = load_data("./Data/CXTDictSasRec_Games.dat")
-    else:
-        raise ValueError("Unknown dataset")
+    (
+        user_train,
+        user_features,
+        itemnum,
+        cxtdict,
+        cxtsize,
+        maxlen,
+        item_features,
+        usernum,
+        itemid2idx,
+    ) = load_dataset(args.dataset, maxlen=args.maxlen, cxt_size=args.cxt_size)
 
     dataloader = get_dataloader(
         user_train,
-        UserFeatures,
+        user_features,
         itemnum,
-        CXTDict,
-        args.cxt_size,
-        args.maxlen,
+        cxtdict,
+        cxtsize,
+        maxlen,
         args.batch_size,
-        ItemFeatures,
+        item_features,
+        itemid2idx=itemid2idx,
     )
     model = SequentialRecModel(
         usernum,
         itemnum,
         args,
-        ItemFeatures.shape[1],
-        UserFeatures.shape[1],
-        args.cxt_size,
+        item_features.shape[1],
+        user_features.shape[1],
+        cxtsize,
     ).to(args.device)
+
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     for epoch in range(1, args.num_epochs + 1):
