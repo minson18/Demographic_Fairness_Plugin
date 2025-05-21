@@ -1,9 +1,0 @@
-#We used TensorFlow-GPU 1.15 and Python 3 for all our experiments
-#To run the respective dataset, please use the below commands
-- python CARCA.py 'Video_Games'
-- python CARCA.py 'Men'
-- python CARCA.py 'Beauty'
-- python CARCA.py 'Fashion'
-
-Note: To run the Fashion dataset on a GPU, a K80 or T4 is required which exist in google colab. 
-

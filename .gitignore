@@ -52,6 +52,7 @@ logs/
 *.dat
 *.npy
 *.npz
+*.zip
 
 # Misc
 .pytest_cache/

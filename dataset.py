@@ -6,6 +6,12 @@ import pickle
 
 
 class SequentialRecDataset(Dataset):
+    """
+    PyTorch Dataset for sequential recommendation.
+    For MovieLens 1M, context vector for each (user, item) is:
+    [hour/23.0, day_of_week/6.0, normalized_timestamp, title_embedding (384), genre_multi_hot (21), rating]
+    """
+
     def __init__(
         self,
         user_train,

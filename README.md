@@ -2,158 +2,99 @@
 
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/sequential-recommendation-on-amazon-men)](https://paperswithcode.com/sota/sequential-recommendation-on-amazon-men?p=carca-context-and-attribute-aware-next-item)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-games)](https://paperswithcode.com/sota/recommendation-systems-on-amazon-games?p=carca-context-and-attribute-aware-next-item)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-fashion)](https://paperswithcode.com/sota/recommendation-systems-on-amazon-fashion?p=carca-context-and-attribute-aware-next-item)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-beauty)](https://paperswithcode.com/sota/recommendation-systems-on-amazon-beauty?p=carca-context-and-attribute-aware-next-item)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-fashion)](https://paperswithcode.com/sota/sequential-recommendation-on-amazon-fashion?p=carca-context-and-attribute-aware-next-item)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/carca-context-and-attribute-aware-next-item/recommendation-systems-on-amazon-beauty)](https://paperswithcode.com/sota/sequential-recommendation-on-amazon-beauty?p=carca-context-and-attribute-aware-next-item)
 
 ---
 
 ## About This Repository
 
-**This codebase is modified from the official [CARCA](https://github.com/ahmedrashed57/CARCA) repository, but has been fully migrated from TensorFlow to PyTorch. All model logic, data processing, and training routines are now implemented using PyTorch 2.x, with support for Python 3.12 and NumPy >2.0.**
-
-Original paper: [Context and Attribute-Aware Sequential Recommendation via Cross-Attention (RecSys 2022)](https://dl.acm.org/doi/10.1145/3523227.3546777)
-
-If you use this code or datasets, please cite the original paper.
+This is a PyTorch migration of the official [CARCA](https://github.com/ahmedrashed57/CARCA) repository for context- and attribute-aware sequential recommendation. It supports both Amazon datasets and MovieLens 1M, with unified data loading and preprocessing.
 
 ---
 
-## Setup
-
-Install all dependencies using:
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Data Preparation
-
-1. Download preprocessed data for MovieLens 1M from [Google Drive](https://drive.google.com/drive/folders/1Cy1c3vGwSKgjLT0u-8ERqBVq_Y5bauaM?usp=sharing). Download the `movielens_preprocessed.zip` file, unzip it, and place the resulting folder inside the `Data/` directory.
-2. Alternatively, download preprocessed data for Amazon datasets from [Google Drive](https://drive.google.com/drive/folders/1a_u52mIEUA-1WrwsNZZa-aoGJcMmVugs?usp=sharing) or the raw data from [Amazon Review Data](https://jmcauley.ucsd.edu/data/amazon/).
-3. Place the data files inside the `Data/` folder (which is ignored by git).
-4. MovieLens 1M Dataset can also be downloaded in raw form here [ml-1m](https://grouplens.org/datasets/movielens/1m/).
-
----
-
-## MovieLens 1M Preprocessing & Usage
-
-### 1. Preprocess the MovieLens 1M dataset
-
-First, ensure you have downloaded the [ml-1m dataset](https://grouplens.org/datasets/movielens/1m/) and placed it in `RawData/ml-1m/`.
-
-Install requirements (if not already):
-```bash
-pip install -r requirements.txt
-```
-
-Run the preprocessing script to generate CARCA-ready files (with title embeddings, genre, and timestamp context features):
-```bash
-python RawData/preprocess_ml1m.py
-```
-This will create a `movielens_preprocessed/` directory with all necessary files.
-
-> **Note:** MovieLens 1M uses 1-based user and item IDs (e.g., UserID 1-6040). Internally, these are mapped to 0-based indices for numpy arrays and PyTorch tensors. This mapping is handled automatically in the code, but if you inspect the data, be aware of this conversion.
-
-### 2. Load the preprocessed data in your code
-
-Use the unified loader function in `dataset.py`:
-
-```python
-from dataset import load_dataset, get_dataloader
-
-# Load MovieLens 1M data (maxlen is the sequence length you want)
-user_train, user_features, itemnum, cxtdict, cxtsize, maxlen, item_features, usernum, itemid2idx = load_dataset('ml-1m', maxlen=50)
-
-# Create a DataLoader
-batch_size = 128
-loader = get_dataloader(user_train, user_features, itemnum, cxtdict, cxtsize, maxlen, batch_size, item_features, itemid2idx=itemid2idx)
-
-# Iterate over batches
-for batch in loader:
-    # Your training code here
-    pass
-```
-
-- The context features for each (user, item) pair include: timestamp (hour, day, normalized), title embedding, and genre multi-hot vector.
-- The item features are a concatenation of the title embedding and genre.
-
----
-
-## Unified Training Pipeline Usage (All Datasets)
+## Setup & Usage
 
 ### 1. Install Requirements
-
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 2. Prepare Data
-
-- **For MovieLens 1M:**
-    1. Download the [ml-1m dataset](https://grouplens.org/datasets/movielens/1m/) and place it in `others/ml-1m/`.
-    2. Run the preprocessing script:
-    ```bash
-    python preprocess_ml1m.py
-    ```
-    This will create a `movielens_preprocessed/` directory with all necessary files.
-
-- **For Amazon Datasets (Beauty, Men, Fashion, Video_Games):**
-    1. Download or preprocess the data as described in the original CARCA instructions.
-    2. Place the data files in the appropriate `Data/` folder.
+- **Amazon datasets:** Download/preprocess as in the original CARCA repo and place in `Data/`.
+- **MovieLens 1M:**
+  1. **Option A:** Download [ml-1m](https://grouplens.org/datasets/movielens/1m/) and place in `RawData/ml-1m/`, then preprocess:
+     ```bash
+     python RawData/preprocess_ml1m.py
+     ```
+     This creates `Data/movielens_preprocessed/` with all necessary files.
+  2. **Option B:** Download preprocessed data for MovieLens 1M from [Google Drive](https://drive.google.com/drive/folders/1Cy1c3vGwSKgjLT0u-8ERqBVq_Y5bauaM?usp=sharing). Download the `movielens_preprocessed.zip` file, unzip it, and place the resulting folder inside the `Data/` directory.
 
 ### 3. Train the Model
-
-Run the following command, replacing `DATASET_NAME` with one of: `ml-1m`, `Beauty`, `Men`, `Fashion`, `Video_Games`.
-
 ```bash
 python train.py --dataset DATASET_NAME --maxlen 50 --batch_size 128
 ```
-
-- All dataset-specific logic is now handled automatically by the unified loader in `dataset.py`.
-- You can adjust other hyperparameters as needed (see `train.py` for options).
-
-#### Example: Train on MovieLens 1M
-```bash
-python train.py --dataset ml-1m --maxlen 50 --batch_size 128
-```
-
-#### Example: Train on Amazon Beauty
-```bash
-python train.py --dataset Beauty --maxlen 75 --batch_size 128
-```
+Replace `DATASET_NAME` with one of: `ml-1m`, `Beauty`, `Men`, `Fashion`, `Video_Games`.
 
 ---
 
-- The codebase is now fully unified: you do not need to change any code to switch datasets.
-- To add new datasets, simply extend the `load_dataset` function in `dataset.py`.
+## MovieLens 1M Preprocessed Data Format
 
----
+After preprocessing, `Data/movielens_preprocessed/` contains:
+- **user_train.pkl**: Dict mapping user ID to list of positively rated item IDs (sorted by timestamp).
+- **user_features.npy**: `(num_users, 4)` array: `[gender, age, occupation, zip_hash]`.
+- **item_features.npy**: `(num_items, 405)` array: `[title_embedding (384), genre_multi_hot (21)]`.
+- **cxtdict.pkl**: Dict mapping `(user_id, item_id)` to context vector `[timestamp_features (3), title_embedding (384), genre_multi_hot (21), rating (1)]`.
+- **itemid2idx.pkl**: Dict mapping MovieID to row index in `item_features.npy`.
+- **ratings_matrix.npy**: `(num_users, num_items)` array, each entry is the rating (0 if not rated).
+- **userid2idx.pkl**: Dict mapping UserID to row index in `ratings_matrix.npy`.
+- **cxtsize.txt**: Length of context vector.
+- **genre_map.json**: Genre name to index mapping.
+- **item2title_emb.npy**: `(num_items, 384)` array of title embeddings.
 
-## Features
-- PyTorch 2.x, Python 3.12, NumPy >2.0 compatible
-- User feature support (see `get_UserData*` in `data_utils.py`)
-- Transformer-based sequential recommendation
-- Context and item features
-- Modern, modular code structure
+> **Note:** MovieLens 1M uses 1-based user/item IDs, mapped to 0-based indices internally.
+
+#### Example: Using the Ratings Matrix
+```python
+import numpy as np, pickle, json
+
+# Load ratings matrix and user mapping
+ratings_matrix = np.load('Data/movielens_preprocessed/ratings_matrix.npy')
+with open('Data/movielens_preprocessed/userid2idx.pkl', 'rb') as f:
+    userid2idx = pickle.load(f)
+with open('Data/movielens_preprocessed/itemid2idx.pkl', 'rb') as f:
+    itemid2idx = pickle.load(f)
+
+# To get the rating for a MovieLens user and item (e.g., user 123, item 4567):
+user_id = 123
+item_id = 4567
+user_row = userid2idx[user_id]  # Map MovieLens user ID to row
+item_col = itemid2idx[item_id]  # Map MovieLens item ID to column
+rating = ratings_matrix[user_row, item_col]
+print(f'User {user_id} rated item {item_id} as {rating}')
+
+# If you want to get all ratings for a user:
+user_ratings = ratings_matrix[user_row, :]
+# Or all ratings for an item:
+item_ratings = ratings_matrix[:, item_col]
+```
 
 ---
 
 ## File Structure
 - `data_utils.py`: Data loading and feature extraction
-- `dataset.py`: PyTorch Dataset/DataLoader
-- `model.py`: Model definition (PyTorch)
+- `dataset.py`: Unified PyTorch Dataset/DataLoader
+- `model.py`: Model definition
 - `train.py`: Training loop
+- `RawData/preprocess_ml1m.py`: MovieLens 1M preprocessing
 - `requirements.txt`: Dependencies
-- `.gitignore`: Ignores the `Data/` folder
 
 ---
 
 ## Credits
-- This repository is a PyTorch migration of the official [CARCA](https://github.com/ahmedrashed57/CARCA) codebase.
-- Original authors: Ahmed Rashed, et al.
+- PyTorch migration of [CARCA](https://github.com/ahmedrashed57/CARCA) by Ahmed Rashed et al.
 - Migration and modernization by [your name or organization].
 
 ---
 
-**Note:** This repo is a direct migration from TensorFlow 1.x to PyTorch 2.x, with modern idioms and user feature support. For preprocessing raw Amazon reviews or image features, refer to the original CARCA repo and adapt as needed.
+**For more details, see comments in the code.**

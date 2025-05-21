@@ -6,7 +6,7 @@ import numpy as np
 import argparse
 from data_utils import *
 from dataset import get_dataloader, load_dataset
-from model import SequentialRecModel
+from model import CARCA
 
 
 def bce_loss(pos_logits, neg_logits):
@@ -87,7 +87,7 @@ def main():
         item_features,
         itemid2idx=itemid2idx,
     )
-    model = SequentialRecModel(
+    model = CARCA(
         usernum,
         itemnum,
         args,
