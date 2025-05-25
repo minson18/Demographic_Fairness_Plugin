@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-
+from typing import List
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=500):
@@ -20,15 +20,58 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[: x.size(1)]
 
 
+class MINE(nn.Module):
+    """
+    MINE: Mutual Information Neural Estimation
+    使用 Donsker–Varadhan 下界：
+      I(X;Y) ≥ E_p[T(x,y)] - log(E_{p(x)p(y)}[e^{T(x,y)}])
+    """
+    def __init__(self, input_dim, hidden_dim=128):
+        super(MINE, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+
+    def _net(self, inp):
+        h = F.relu(self.fc1(inp))
+        h = F.relu(self.fc2(h))
+        return self.fc3(h)
+
+    def forward(self, x, y):
+        # x, y: (batch, hidden_units)
+        joint = torch.cat([x, y], dim=1)            # (batch, 2*d)
+        # 造 marginals: 對 y 隨機打亂
+        y_perm = y[torch.randperm(y.size(0))]
+        marginal = torch.cat([x, y_perm], dim=1)
+
+        t_joint = self._net(joint)                 # T(x,y)
+        t_marginal = self._net(marginal)           # T(x,y')
+
+        # 取最大值作為基底，避免 exp overflow
+        M = torch.max(t_marginal)
+        exp_term = torch.exp(t_marginal - M)
+        mi = torch.mean(t_joint) - (torch.log(torch.mean(exp_term) + 1e-8) + M)
+        # mi = torch.mean(t_joint) - torch.log(torch.mean(torch.exp(t_marginal)) + 1e-8)
+        return mi
+
+
+# 假設 sens_feat tensor 裡的欄位順序是 [gender, age, occupation]
+SENS_MAPPING = {"gender": 0, "age": 1, "occupation": 2, "zip": 3, "0": 0, "1": 1, "2": 2, "3": 3} #
 class CARCA(nn.Module):
     def __init__(
-        self, usernum, itemnum, args, item_feature_dim, user_feature_dim, cxt_size
+        self, usernum, itemnum, args, item_feature_dim, user_feature_dim, sens_feature_dim, selected_sens: List[str], cxt_size
     ):
         super().__init__()
         self.hidden_units = args.hidden_units
         self.maxlen = args.maxlen
         self.cxt_size = cxt_size
         self.user_embedding = nn.Linear(user_feature_dim, self.hidden_units)
+        # 新增 sensitive embedding
+        # 只保留你要的那些敏感屬性 index
+        self.sens_indices = [SENS_MAPPING[str(attr)] for attr in selected_sens]
+        self.sens_embedding = nn.Linear(len(self.sens_indices), self.hidden_units)
+        # 初始化 MINE
+        self.mine = MINE(input_dim=self.hidden_units*2, hidden_dim=self.hidden_units)
         self.item_embedding = nn.Embedding(
             itemnum + 1, self.hidden_units, padding_idx=0
         )
@@ -65,6 +108,7 @@ class CARCA(nn.Module):
     def forward(
         self,
         user_feat,
+        sens_feat_all,
         seq,
         seq_feat,
         seq_cxt,
@@ -83,7 +127,14 @@ class CARCA(nn.Module):
         # pos_feat/neg_feat: (batch, maxlen, item_feature_dim)
         # pos_cxt/neg_cxt: (batch, maxlen, cxt_size)
         batch_size = seq.size(0)
+        # 1) 計算 user embedding
         user_emb = self.user_embedding(user_feat)  # (batch, hidden_units)
+        # 2) 計算 sensitive embedding
+        # 把 sens_feat_all slice 出來
+        sens_feat = sens_feat_all[:, self.sens_indices]
+        sens_emb = self.sens_embedding(sens_feat)       # (batch, d)
+        # 3) Mutual Information lower‐bound
+        mi_estimate = self.mine(user_emb, sens_emb)     # 標量或 (batch,)
         seq_emb = self.item_embedding(seq)  # (batch, maxlen, hidden_units)
         seq_feat_in = torch.cat(
             [seq_feat, seq_cxt], dim=-1
@@ -122,4 +173,4 @@ class CARCA(nn.Module):
         pos_logits = self.final_linear(pos_attn_out).squeeze(-1)
         neg_attn_out, _ = self.attn(neg_out, seq_out, seq_out)
         neg_logits = self.final_linear(neg_attn_out).squeeze(-1)
-        return pos_logits, neg_logits
+        return pos_logits, neg_logits, mi_estimate
