@@ -30,11 +30,55 @@ pip install -r requirements.txt
      This creates `Data/movielens_preprocessed/` with all necessary files.
   2. **Option B:** Download preprocessed data for MovieLens 1M from [Google Drive](https://drive.google.com/drive/folders/1Cy1c3vGwSKgjLT0u-8ERqBVq_Y5bauaM?usp=sharing). Download the `movielens_preprocessed.zip` file, unzip it, and place the resulting folder inside the `Data/` directory.
 
-### 3. Train the Model
+---
+
+## Training and Testing
+
+You can specify dataset, batch size, and other parameters for both training and testing:
+
+### Training
 ```bash
-python train.py --dataset DATASET_NAME --maxlen 50 --batch_size 128
+python train.py --dataset ml-1m --maxlen 50 --batch_size 128 --num_epochs 50
 ```
-Replace `DATASET_NAME` with one of: `ml-1m`, `Beauty`, `Men`, `Fashion`, `Video_Games`.
+- `--dataset`: Dataset name (e.g., ml-1m, Beauty, Men, Fashion, Video_Games)
+- `--maxlen`: Maximum sequence length
+- `--batch_size`: Training batch size
+- `--num_epochs`: Number of training epochs
+
+### Testing
+```bash
+python test.py --dataset ml-1m --maxlen 50 --batch_size 32 --model_path saved_models/ml-1m/best_model.pth
+```
+- `--dataset`: Dataset name
+- `--maxlen`: Maximum sequence length
+- `--batch_size`: Evaluation batch size
+- `--model_path`: Path to the trained model (default: saved_models/{dataset}/best_model.pth)
+
+---
+
+## Evaluation Metrics
+
+After training, the following metrics are reported for validation and test sets:
+
+- **NDCG@k**: Normalized Discounted Cumulative Gain at k (k=1,5,10,20)
+- **Hit@k**: Hit Rate at k (fraction of users with at least one correct item in top-k)
+- **MRR@k**: Mean Reciprocal Rank at k (average reciprocal rank of the first correct item in top-k)
+- **DP_gender**: Fairness metric (difference in recommendations when swapping user gender)
+- **DP_age**: Fairness metric (difference in recommendations when swapping user age group)
+
+### Example Output
+```
+Test set metrics:
+  |   k   | NDCG  | Hit   |  MRR  |
+  |-------|-------|-------|-------|
+  | 1     | 0.0124 | 0.0100 | 0.0100 |
+  | 5     | 0.0136 | 0.0300 | 0.0150 |
+  | 10    | 0.0150 | 0.0500 | 0.0170 |
+  | 20    | 0.0151 | 0.0800 | 0.0180 |
+  |-------|-------|-------|-------|
+  DP_gender: 0.1029
+  DP_age:    0.7267
+```
 
 ---
 
@@ -94,7 +138,3 @@ item_ratings = ratings_matrix[:, item_col]
 ## Credits
 - PyTorch migration of [CARCA](https://github.com/ahmedrashed57/CARCA) by Ahmed Rashed et al.
 - Migration and modernization by [your name or organization].
-
----
-
-**For more details, see comments in the code.**

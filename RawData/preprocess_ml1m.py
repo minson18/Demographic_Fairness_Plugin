@@ -95,21 +95,36 @@ def build_user_features(users, out_dir):
     return user_features
 
 
-def build_user_sequences(ratings, out_dir):
+def build_user_sequences_and_splits(ratings, out_dir):
     user_train = {}
     user_neg = {}
+    user_train_split = {}
+    user_valid = {}
+    user_test = {}
     for uid, group in tqdm(ratings.groupby("UserID"), desc="Building user sequences"):
         pos = group[group["Rating"] > 3].sort_values("Timestamp")["MovieID"].tolist()
         neg = group[group["Rating"] <= 3].sort_values("Timestamp")["MovieID"].tolist()
-        if len(pos) > 1:
-            user_train[uid] = pos
+        # Only keep users with at least 3 positive interactions
+        if len(pos) < 3:
+            continue
+        user_train[uid] = pos
         if len(neg) > 0:
             user_neg[uid] = neg
+        # Train/val/test split
+        user_train_split[uid] = pos[:-2]
+        user_valid[uid] = pos[-2]
+        user_test[uid] = pos[-1]
     with open(os.path.join(out_dir, "user_train.pkl"), "wb") as f:
         pickle.dump(user_train, f)
     with open(os.path.join(out_dir, "user_neg.pkl"), "wb") as f:
         pickle.dump(user_neg, f)
-    return user_train, user_neg
+    with open(os.path.join(out_dir, "user_train_split.pkl"), "wb") as f:
+        pickle.dump(user_train_split, f)
+    with open(os.path.join(out_dir, "user_valid.pkl"), "wb") as f:
+        pickle.dump(user_valid, f)
+    with open(os.path.join(out_dir, "user_test.pkl"), "wb") as f:
+        pickle.dump(user_test, f)
+    return user_train, user_neg, user_train_split, user_valid, user_test
 
 
 def timestamp_features(ts, min_ts, max_ts):
@@ -182,7 +197,9 @@ def main():
         movies, title_embs, genre2idx, OUT_DIR
     )
     user_features = build_user_features(users, OUT_DIR)
-    user_train, user_neg = build_user_sequences(ratings, OUT_DIR)
+    user_train, user_neg, user_train_split, user_valid, user_test = (
+        build_user_sequences_and_splits(ratings, OUT_DIR)
+    )
     cxtdict, cxtsize = build_context_dict(
         ratings, movies, title_embs, genre2idx, itemid2idx, OUT_DIR
     )

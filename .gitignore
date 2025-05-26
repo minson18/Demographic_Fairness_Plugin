@@ -1,4 +1,3 @@
-Data/ 
 # Python
 __pycache__/
 *.py[cod]
@@ -58,3 +57,7 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# CARCA
+Data/ 
+saved_models/
