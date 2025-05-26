@@ -134,7 +134,7 @@ def main():
         if epoch % 10 == 0:
             torch.cuda.empty_cache()
             user_valid_subset = evaluator.sample_user_subset(user_valid, percent=0.1)
-            metrics = evaluator.evaluate(user_train_split, user_valid_subset, k=20, batch_size=32, candidate_chunk_size=200)
+            metrics = evaluator.evaluate(user_train_split, user_valid_subset, k=20, batch_size=32, candidate_chunk_size=200, fairness_metrics=False)
             print("Validation metrics (10% subset):")
             for k in [1, 5, 10, 20]:
                 print(f"  NDCG@{k}: {metrics[f'ndcg@{k}']:.4f}  Hit@{k}: {metrics[f'hit@{k}']:.4f}  MRR@{k}: {metrics[f'mrr@{k}']:.4f}")

@@ -246,14 +246,13 @@ class Evaluator:
         topk_items = [[self.candidate_items[i] for i in row] for row in topk_idx]
         return topk_items
 
-    def evaluate(self, user_train: Dict, user_eval: Dict, k: int = 20, batch_size: int = 128, candidate_chunk_size: int = 200) -> List[float]:
+    def evaluate(self, user_train: Dict, user_eval: Dict, k: int = 20, batch_size: int = 128, candidate_chunk_size: int = 200, fairness_metrics: bool = True) -> dict:
         logger.info(f"Processing {len(user_eval)} users, batch_size={batch_size}, candidate_chunk_size={candidate_chunk_size}")
         users = list(user_eval.keys())
         true_items_s = []
         pred_items_s = []
         pred_items_s_diff_gender = []
         pred_items_ss_diff_age = [[] for _ in range(7)]
-        # Add tqdm for progress bar
         for start in tqdm(range(0, len(users), batch_size), desc="Evaluating users", unit="user"):
             end = min(start + batch_size, len(users))
             batch_users = users[start:end]
@@ -262,15 +261,20 @@ class Evaluator:
             topk = self.get_top_k_batch(batch_users, batch_train_seqs, k=k, candidate_chunk_size=candidate_chunk_size)
             true_items_s.extend([[user_eval[u]] for u in batch_users])
             pred_items_s.extend(topk)
-            # Per-user gender swap
-            swapped_genders = [1 - int(self.user_features[u - 1][0]) for u in batch_users]
-            topk_gender = self.get_top_k_batch(batch_users, batch_train_seqs, k=k, swap_gender=swapped_genders, candidate_chunk_size=candidate_chunk_size)
-            pred_items_s_diff_gender.extend(topk_gender)
-            # Per-user age swap (7 groups)
-            for age_group in range(7):
-                swapped_ages = [age_group for _ in batch_users]
-                topk_age = self.get_top_k_batch(batch_users, batch_train_seqs, k=k, swap_age=swapped_ages, candidate_chunk_size=candidate_chunk_size)
-                pred_items_ss_diff_age[age_group].extend(topk_age)
+            if fairness_metrics:
+                # Per-user gender swap
+                swapped_genders = [1 - int(self.user_features[u - 1][0]) for u in batch_users]
+                topk_gender = self.get_top_k_batch(batch_users, batch_train_seqs, k=k, swap_gender=swapped_genders, candidate_chunk_size=candidate_chunk_size)
+                pred_items_s_diff_gender.extend(topk_gender)
+                # Per-user age swap (7 groups)
+                for age_group in range(7):
+                    swapped_ages = [age_group for _ in batch_users]
+                    topk_age = self.get_top_k_batch(batch_users, batch_train_seqs, k=k, swap_age=swapped_ages, candidate_chunk_size=candidate_chunk_size)
+                    pred_items_ss_diff_age[age_group].extend(topk_age)
+        # If not computing fairness, fill with dummy lists for compatibility
+        if not fairness_metrics:
+            pred_items_s_diff_gender = [[[] for _ in range(len(pred_items_s))]][0]
+            pred_items_ss_diff_age = [[[] for _ in range(len(pred_items_s))] for _ in range(7)]
         metrics = calculate_metrics(
             true_items_s, pred_items_s, pred_items_s_diff_gender, pred_items_ss_diff_age
         )
