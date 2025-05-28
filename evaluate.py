@@ -234,7 +234,7 @@ class Evaluator:
             neg_cxt = poscxt
 
             with torch.no_grad():
-                pos_logits, _ = self.model(
+                pos_logits, _, _ = self.model(
                     user_feat_batch, seq_batch, seq_feat_batch, seqcxt_batch,
                     pos, pos_feat, poscxt, neg, neg_feat, neg_cxt
                 )

@@ -7,30 +7,50 @@ import argparse
 import pickle
 from data_utils import *
 from dataset import get_dataloader, load_dataset
-from model import CARCA
+from model import CARCA, SENS_MAPPING
 from evaluate import Evaluator
 import os
 
 
-def bce_loss(pos_logits, neg_logits, mask):
+def bce_loss(pos_logits, neg_logits, mask=None):
     # mask: (batch, maxlen), float tensor (1 for valid, 0 for pad)
+    # If mask is not provided, assume all are valid (e.g. for single item pred)
+    if mask is None:
+        mask = torch.ones_like(pos_logits)
+
     loss = (
         -torch.log(torch.sigmoid(pos_logits) + 1e-24) * mask
         - torch.log(1 - torch.sigmoid(neg_logits) + 1e-24) * mask
     )
-    return loss.sum() / mask.sum()
+    # Ensure sum over valid entries only before dividing
+    # Handle cases where mask.sum() could be zero to avoid NaN
+    sum_loss = loss.sum()
+    sum_mask = mask.sum()
+    if sum_mask > 0:
+        return sum_loss / sum_mask
+    return torch.tensor(0.0, device=pos_logits.device) # Or handle as appropriate
 
 
-def train_one_epoch(model, dataloader, optimizer, device):
+def train_one_epoch(model, dataloader, optimizer_main, optimizer_mine, device, fairness_lambda):
     model.train()
-    total_loss = 0
+    total_loss = 0.0
+    total_rec_loss = 0.0
+    total_fairness_loss = 0.0
+
     for batch in tqdm(dataloader, desc="Train", leave=False):
         for k in batch:
             if isinstance(batch[k], torch.Tensor):
                 batch[k] = batch[k].to(device)
-        optimizer.zero_grad()
-        pos_logits, neg_logits = model(
-            batch["user_feat"],
+        
+        optimizer_main.zero_grad()
+        optimizer_mine.zero_grad()
+
+        user_feat_all = batch["user_feat"]
+        
+        # Model forward pass now returns mi_estimate
+        pos_logits, neg_logits, mi_est = model(
+            user_feat_all, # This is user_feat_all for CARCA model
+            # user_feat_all, # Second arg was sens_feat_all in reference, CARCA handles it internally from user_feat_all
             batch["seq"],
             batch["seq_feat"],
             batch["seqcxt"],
@@ -41,12 +61,25 @@ def train_one_epoch(model, dataloader, optimizer, device):
             batch["neg_feat"],
             batch["negcxt"],
         )
-        mask = (batch["seq"] != 0).float()
-        loss = bce_loss(pos_logits, neg_logits, mask)
+        
+        mask = (batch["pos"] != 0).float() # Assuming positive items define valid interactions for loss
+        rec_loss = bce_loss(pos_logits, neg_logits, mask)
+        fairness_loss = mi_est.mean() # Average MI over batch
+        
+        loss = rec_loss + fairness_lambda * fairness_loss
+        
         loss.backward()
-        optimizer.step()
+        optimizer_main.step()
+        optimizer_mine.step()
+        
         total_loss += loss.item()
-    return total_loss / len(dataloader)
+        total_rec_loss += rec_loss.item()
+        total_fairness_loss += fairness_loss.item()
+
+    avg_loss = total_loss / len(dataloader)
+    avg_rec_loss = total_rec_loss / len(dataloader)
+    avg_fairness_loss = total_fairness_loss / len(dataloader)
+    return avg_loss, avg_rec_loss, avg_fairness_loss
 
 
 def load_split(split_name, out_dir):
@@ -71,6 +104,12 @@ def main():
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
+    parser.add_argument("--selected_sens", type=str, default="0", 
+                        help="Comma-separated indices or names of sensitive attributes (e.g., '0,1' or 'gender,age')")
+    parser.add_argument("--fairness_lambda", type=float, default=0.1,
+                        help="Weight for mutual information fairness loss")
+    parser.add_argument("--mine_lr", type=float, default=1e-5, # Default MINE LR from reference
+                        help="Learning rate for MINE optimizer")
     args = parser.parse_args()
 
     (
@@ -96,6 +135,12 @@ def main():
         item_features,
         itemid2idx=itemid2idx,
     )
+
+    # Process selected_sens
+    # If attribute names like 'gender', 'age' are used, they are mapped by SENS_MAPPING in model
+    # Here we just split the string for the model constructor
+    selected_sens_list = [s.strip() for s in args.selected_sens.split(',')]
+
     model = CARCA(
         usernum,
         itemnum,
@@ -103,9 +148,16 @@ def main():
         item_features.shape[1],
         user_features.shape[1],
         cxtsize,
+        selected_sens=selected_sens_list, # Pass processed list
+        sens_feature_dim=len(selected_sens_list) # Pass number of selected attributes
     ).to(args.device)
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    # New optimizers
+    main_params = [p for n, p in model.named_parameters() if "mine." not in n and p.requires_grad]
+    mine_params = [p for n, p in model.named_parameters() if "mine." in n and p.requires_grad]
+
+    optimizer_main = optim.Adam(main_params, lr=args.lr)
+    optimizer_mine = optim.Adam(mine_params, lr=args.mine_lr)
 
     # Load validation split for ml-1m
     out_dir = "Data/movielens_preprocessed"
@@ -128,8 +180,10 @@ def main():
 
     best_ndcg20 = -1
     for epoch in range(1, args.num_epochs + 1):
-        loss = train_one_epoch(model, dataloader, optimizer, args.device)
-        print(f"Epoch {epoch}, Loss: {loss:.4f}")
+        avg_loss, avg_rec_loss, avg_fairness_loss = train_one_epoch(
+            model, dataloader, optimizer_main, optimizer_mine, args.device, args.fairness_lambda
+        )
+        print(f"Epoch {epoch:02d} | Total Loss: {avg_loss:.4f} | Rec Loss: {avg_rec_loss:.4f} | Fair Loss: {avg_fairness_loss:.4f}")
         # Evaluate every 10 epochs
         if epoch % 10 == 0:
             torch.cuda.empty_cache()
