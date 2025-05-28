@@ -134,13 +134,17 @@ def main():
         if epoch % 10 == 0:
             torch.cuda.empty_cache()
             user_valid_subset = evaluator.sample_user_subset(user_valid, percent=0.1)
-            metrics = evaluator.evaluate(user_train_split, user_valid_subset, k=20, batch_size=32, candidate_chunk_size=200, fairness_metrics=False)
+            metrics = evaluator.evaluate(
+                user_train_split,
+                user_valid_subset,
+                k=20,
+                batch_size=32,
+                candidate_chunk_size=200,
+                fairness_metrics=False,
+            )
             print("Validation metrics (10% subset):")
-            for k in [1, 5, 10, 20]:
-                print(f"  NDCG@{k}: {metrics[f'ndcg@{k}']:.4f}  Hit@{k}: {metrics[f'hit@{k}']:.4f}  MRR@{k}: {metrics[f'mrr@{k}']:.4f}")
-            print(f"  DP_gender: {metrics['dp_gender']:.4f}")
-            print(f"  DP_age: {metrics['dp_age']:.4f}")
-            ndcg20 = metrics['ndcg@20']
+            Evaluator.print_metrics_table(metrics)
+            ndcg20 = metrics["ndcg@20"]
             if ndcg20 > best_ndcg20:
                 best_ndcg20 = ndcg20
                 torch.save(model.state_dict(), best_model_path)
@@ -153,7 +157,7 @@ def main():
     model.load_state_dict(torch.load(best_model_path))
     model.eval()
     # Use the full test set
-    if hasattr(evaluator, 'user_test') and evaluator.user_test is not None:
+    if hasattr(evaluator, "user_test") and evaluator.user_test is not None:
         user_test_set = evaluator.user_test
     else:
         # Try to load from file if not present
@@ -165,16 +169,19 @@ def main():
             print("Test set not found. Skipping test evaluation.")
             user_test_set = None
     if user_test_set is not None:
-        test_metrics = evaluator.evaluate(user_train_split, user_test_set, k=20, batch_size=32, candidate_chunk_size=200)
+        test_metrics = evaluator.evaluate(
+            user_train_split,
+            user_test_set,
+            k=20,
+            batch_size=32,
+            candidate_chunk_size=200,
+        )
         print("Test set metrics:")
-        # Print as a table
-        print("  |   k   | NDCG  | Hit   |  MRR  |")
-        print("  |-------|-------|-------|-------|")
-        for k in [1, 5, 10, 20]:
-            print(f"  | {k:<5} | {test_metrics[f'ndcg@{k}']:.4f} | {test_metrics[f'hit@{k}']:.4f} | {test_metrics[f'mrr@{k}']:.4f} |")
-        print("  |-------|-------|-------|-------|")
-        print(f"  DP_gender: {test_metrics['dp_gender']:.4f}")
-        print(f"  DP_age: {test_metrics['dp_age']:.4f}")
+        Evaluator.print_metrics_table(test_metrics)
+        if "distance_gender" in test_metrics:
+            print(f"  Distance (gender): {test_metrics['distance_gender']:.4f}")
+        if "distance_age" in test_metrics:
+            print(f"  Distance (age): {test_metrics['distance_age']:.4f}")
     else:
         print("No test set available for evaluation.")
 

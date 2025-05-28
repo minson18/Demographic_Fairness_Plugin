@@ -71,15 +71,19 @@ def main():
         itemid2idx,
         device,
     )
-    metrics = evaluator.evaluate(user_train_split, user_test, k=20, batch_size=args.batch_size, candidate_chunk_size=args.candidate_chunk_size)
+    metrics = evaluator.evaluate(
+        user_train_split,
+        user_test,
+        k=20,
+        batch_size=args.batch_size,
+        candidate_chunk_size=args.candidate_chunk_size,
+    )
     print("Test set metrics:")
-    print("  |   k   | NDCG  | Hit   |  MRR  |")
-    print("  |-------|-------|-------|-------|")
-    for k in [1, 5, 10, 20]:
-        print(f"  | {k:<5} | {metrics[f'ndcg@{k}']:.4f} | {metrics[f'hit@{k}']:.4f} | {metrics[f'mrr@{k}']:.4f} |")
-    print("  |-------|-------|-------|-------|")
-    print(f"  DP_gender: {metrics['dp_gender']:.4f}")
-    print(f"  DP_age: {metrics['dp_age']:.4f}")
+    Evaluator.print_metrics_table(metrics)
+    if "distance_gender" in metrics:
+        print(f"  Distance (gender): {metrics['distance_gender']:.4f}")
+    if "distance_age" in metrics:
+        print(f"  Distance (age): {metrics['distance_age']:.4f}")
 
 
 if __name__ == "__main__":
