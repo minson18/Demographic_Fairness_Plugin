@@ -86,15 +86,15 @@ Test set metrics:
 
 After preprocessing, `Data/movielens_preprocessed/` contains:
 - **user_train.pkl**: Dict mapping user ID to list of positively rated item IDs (sorted by timestamp).
-- **user_features.npy**: `(num_users, 4)` array: `[gender, age, occupation, zip_hash]`.
-- **item_features.npy**: `(num_items, 405)` array: `[title_embedding (384), genre_multi_hot (21)]`.
-- **cxtdict.pkl**: Dict mapping `(user_id, item_id)` to context vector `[timestamp_features (3), title_embedding (384), genre_multi_hot (21), rating (1)]`.
+- **user_features.npy**: `(num_users, 3 + num_occupations)` array: `[gender, min-max normalized age, zip_hash, one-hot occupation]`.
+- **item_features.npy**: `(num_items, 384 + num_genres)` array: `[L2-normalized title_embedding (384), genre_multi_hot (num_genres)]`.
+- **cxtdict.pkl**: Dict mapping `(user_id, item_id)` to context vector `[timestamp_features (3), min-max normalized rating (1)]`.
 - **itemid2idx.pkl**: Dict mapping MovieID to row index in `item_features.npy`.
 - **ratings_matrix.npy**: `(num_users, num_items)` array, each entry is the rating (0 if not rated).
 - **userid2idx.pkl**: Dict mapping UserID to row index in `ratings_matrix.npy`.
 - **cxtsize.txt**: Length of context vector.
 - **genre_map.json**: Genre name to index mapping.
-- **item2title_emb.npy**: `(num_items, 384)` array of title embeddings.
+- **item2title_emb.npy**: `(num_items, 384)` array of L2-normalized title embeddings.
 
 > **Note:** MovieLens 1M uses 1-based user/item IDs, mapped to 0-based indices internally.
 
@@ -138,3 +138,4 @@ item_ratings = ratings_matrix[:, item_col]
 ## Credits
 - PyTorch migration of [CARCA](https://github.com/ahmedrashed57/CARCA) by Ahmed Rashed et al.
 - Migration and modernization by [your name or organization].
+

@@ -58,6 +58,9 @@ def build_title_embeddings(movies):
     title_embs = model.encode(
         titles, show_progress_bar=True, batch_size=512, desc="Encoding movie titles"
     )
+    # L2 normalize each embedding
+    norms = np.linalg.norm(title_embs, axis=1, keepdims=True)
+    title_embs = title_embs / np.clip(norms, a_min=1e-8, a_max=None)
     return title_embs
 
 
@@ -83,14 +86,27 @@ def build_user_features(users, out_dir):
     age2idx = {a: i for i, a in enumerate(age_list)}
     occ_list = sorted(users["Occupation"].unique())
     occ2idx = {o: i for i, o in enumerate(occ_list)}
+    num_occ = len(occ2idx)
     user_features = []
+    age_indices = []
     for _, row in users.iterrows():
         gender = gender_map.get(row["Gender"], 0)
-        age = age2idx[row["Age"]]
-        occ = occ2idx[row["Occupation"]]
+        age_idx = age2idx[row["Age"]]
+        occ_idx = occ2idx[row["Occupation"]]
         zip_hash = hash(row["Zip-code"]) % 10000 / 10000.0
-        user_features.append([gender, age, occ, zip_hash])
+        occ_onehot = np.zeros(num_occ, dtype=np.float32)
+        occ_onehot[occ_idx] = 1.0
+        age_indices.append(age_idx)
+        user_features.append([gender, age_idx, zip_hash] + occ_onehot.tolist())
     user_features = np.stack(user_features)
+    # Min-max normalization for Age Index (column 1)
+    age_indices = np.array(age_indices, dtype=np.float32)
+    age_min, age_max = age_indices.min(), age_indices.max()
+    user_features[:, 1] = (
+        (user_features[:, 1] - age_min) / (age_max - age_min)
+        if age_max > age_min
+        else 0.0
+    )
     np.save(os.path.join(out_dir, "user_features.npy"), user_features)
     return user_features
 
@@ -141,6 +157,9 @@ def build_context_dict(ratings, movies, title_embs, genre2idx, itemid2idx, out_d
     min_ts = ratings["Timestamp"].min()
     max_ts = ratings["Timestamp"].max()
     cxtdict = {}
+    # For min-max normalization of rating
+    rating_min = ratings["Rating"].min()
+    rating_max = ratings["Rating"].max()
     for _, row in tqdm(
         ratings.iterrows(), total=len(ratings), desc="Building context dict"
     ):
@@ -149,10 +168,14 @@ def build_context_dict(ratings, movies, title_embs, genre2idx, itemid2idx, out_d
         ts = row["Timestamp"]
         rating = row["Rating"]
         if iid in itemid2idx:
-            title_emb = title_embs[itemid2idx[iid]]
-            genre_vec = encode_genre(movies.loc[itemid2idx[iid], "Genres"], genre2idx)
             ts_feat = timestamp_features(ts, min_ts, max_ts)
-            cxt = np.concatenate([ts_feat, title_emb, genre_vec, [rating]])
+            # Min-max normalize rating
+            if rating_max > rating_min:
+                norm_rating = (rating - rating_min) / (rating_max - rating_min)
+            else:
+                norm_rating = 0.0
+            # Remove title_emb and genre_vec from context
+            cxt = np.concatenate([ts_feat, [norm_rating]])
             cxtdict[(uid, iid)] = cxt
     cxtsize = len(next(iter(cxtdict.values())))
     with open(os.path.join(out_dir, "cxtdict.pkl"), "wb") as f:
