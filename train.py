@@ -50,10 +50,16 @@ def compute_group_fairness(model, loader, device):
             # 取最後一 timestep 的正/負例 logits
             p = pos_logits[:, -1]
             n = neg_logits[:, -1]
-            sens = batch["user_feat"][..., model.sens_indices[0]].long()
+            # sens = batch["user_feat"][..., model.sens_indices[0]].long() # OLD
+            
+            # NEW: Get all selected sensitive attributes
+            sens_values = batch["user_feat"][..., model.sens_indices].long()
 
-            for pi, ni, s in zip(p, n, sens):
-                grp = int(s.item())
+
+            for pi, ni, s_vals in zip(p, n, sens_values):
+                # grp = int(s.item()) # OLD
+                # NEW: Create a tuple of sensitive attribute values as the group key
+                grp = tuple(s_val.item() for s_val in s_vals)
                 hit = float((pi > ni).item())
                 ndcg = hit  # 在兩選一情境下 NDCG == hit
                 if grp not in stats:
