@@ -32,27 +32,54 @@ pip install -r requirements.txt
 
 ---
 
-## Training and Testing
+## Training, Testing, and Experiment Management
 
-You can specify dataset, batch size, and other parameters for both training and testing:
+### **Recommended: Use `main.py` as a Controller**
 
-### Training
+`main.py` provides a unified interface to run training, testing, or both:
+
+- **Train:**
+  ```bash
+  python main.py --mode train --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20
+  ```
+- **Test:**
+  ```bash
+  python main.py --mode test --dataset ml-1m --maxlen 100 --model_dir saved_models/ml-1m
+  ```
+- **Train and Test Sequentially:**
+  ```bash
+  python main.py --mode both --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20
+  ```
+
+All additional arguments are passed to the respective train or test scripts.
+
+### **Direct Usage of train.py and test.py**
+
+- **Training only:**
+  ```bash
+  python train.py --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20
+  ```
+- **Testing only:**
+  ```bash
+  python test.py --dataset ml-1m --maxlen 100 --model_dir saved_models/ml-1m
+  ```
+  - You can also use `--model_path` to specify a direct path to a model file.
+
+### **Grid Search (Hyperparameter Tuning)**
+
+- **Run grid search:**
+  ```bash
+  python grid_search.py
+  ```
+- Each grid search run creates a unique timestamped directory under `saved_models/` (e.g., `saved_models/gridsearch_20240610_153000/`).
+- All models, validation metrics, and results for that search are saved in this directory.
+- The best hyperparameter combination is automatically retrained, and its test results are saved in a `best_retrain` subdirectory within the same folder.
+- Results are saved as both `grid_search_results.json` and `grid_search_results.csv` for easy review.
+
+#### **To test a specific model from grid search:**
 ```bash
-python train.py --dataset ml-1m --maxlen 50 --batch_size 128 --num_epochs 50
+python test.py --model_dir saved_models/gridsearch_YYYYMMDD_HHMMSS/best_retrain --dataset ml-1m
 ```
-- `--dataset`: Dataset name (e.g., ml-1m, Beauty, Men, Fashion, Video_Games)
-- `--maxlen`: Maximum sequence length
-- `--batch_size`: Training batch size
-- `--num_epochs`: Number of training epochs
-
-### Testing
-```bash
-python test.py --dataset ml-1m --maxlen 50 --batch_size 32 --model_path saved_models/ml-1m/best_model.pth
-```
-- `--dataset`: Dataset name
-- `--maxlen`: Maximum sequence length
-- `--batch_size`: Evaluation batch size
-- `--model_path`: Path to the trained model (default: saved_models/{dataset}/best_model.pth)
 
 ---
 
@@ -63,8 +90,9 @@ After training, the following metrics are reported for validation and test sets:
 - **NDCG@k**: Normalized Discounted Cumulative Gain at k (k=1,5,10,20)
 - **Hit@k**: Hit Rate at k (fraction of users with at least one correct item in top-k)
 - **MRR@k**: Mean Reciprocal Rank at k (average reciprocal rank of the first correct item in top-k)
-- **DP_gender**: Fairness metric (difference in recommendations when swapping user gender)
-- **DP_age**: Fairness metric (difference in recommendations when swapping user age group)
+- **DP_gender**: Fairness metric (distance and delta NDCG when swapping user gender)
+- **DP_age**: Fairness metric (distance and delta NDCG when swapping user age group)
+- **DP_occupation**: Fairness metric (distance and delta NDCG when swapping user occupation, if present)
 
 ### Example Output
 ```
@@ -78,7 +106,18 @@ Test set metrics:
   |-------|-------|-------|-------|
   DP_gender: 0.1029
   DP_age:    0.7267
+  DP_occupation: 0.2154
+  Delta NDCG (gender)@20: 0.0112
+  Delta NDCG (age)@20: 0.0098
+  Delta NDCG (occupation)@20: 0.0123
 ```
+
+---
+
+## Experiment Results Structure
+- Each training or grid search run saves its results in a unique directory under `saved_models/`.
+- For grid search, all models and results for a run are grouped together, and the best retrained model and its test results are in a `best_retrain` subdirectory.
+- Validation and test metrics are saved as JSON and CSV for easy review and reproducibility.
 
 ---
 
@@ -86,7 +125,7 @@ Test set metrics:
 
 After preprocessing, `Data/movielens_preprocessed/` contains:
 - **user_train.pkl**: Dict mapping user ID to list of positively rated item IDs (sorted by timestamp).
-- **user_features.npy**: `(num_users, 3 + num_occupations)` array: `[gender, min-max normalized age, zip_hash, one-hot occupation]`.
+- **user_features.npy**: `(num_users, 3 + num_occupations)` array: `[gender, min-max normalized age, zip_hash, one-hot occupation]` (occupation fairness supported if present).
 - **item_features.npy**: `(num_items, 384 + num_genres)` array: `[L2-normalized title_embedding (384), genre_multi_hot (num_genres)]`.
 - **cxtdict.pkl**: Dict mapping `(user_id, item_id)` to context vector `[timestamp_features (3), min-max normalized rating (1)]`.
 - **itemid2idx.pkl**: Dict mapping MovieID to row index in `item_features.npy`.
@@ -130,6 +169,9 @@ item_ratings = ratings_matrix[:, item_col]
 - `dataset.py`: Unified PyTorch Dataset/DataLoader
 - `model.py`: Model definition
 - `train.py`: Training loop
+- `test.py`: Test set evaluation
+- `main.py`: Unified controller for training/testing
+- `grid_search.py`: Hyperparameter grid search and experiment management
 - `RawData/preprocess_ml1m.py`: MovieLens 1M preprocessing
 - `requirements.txt`: Dependencies
 

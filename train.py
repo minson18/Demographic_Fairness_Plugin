@@ -10,6 +10,7 @@ from dataset import get_dataloader, load_dataset
 from model import CARCA
 from evaluate import Evaluator
 import os
+import json
 
 
 def bce_loss(pos_logits, neg_logits, mask):
@@ -54,7 +55,19 @@ def load_split(split_name, out_dir):
         return pickle.load(f)
 
 
-def main():
+def convert_to_native(obj):
+    if isinstance(obj, dict):
+        return {k: convert_to_native(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_native(v) for v in obj]
+    elif hasattr(obj, "item") and callable(obj.item):
+        # Handles numpy scalars
+        return obj.item()
+    else:
+        return obj
+
+
+def train():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="Beauty")
     parser.add_argument("--batch_size", type=int, default=128)
@@ -71,8 +84,25 @@ def main():
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
-    args = parser.parse_args()
-
+    parser.add_argument("--save_dir", type=str, default=None)
+    args, _ = parser.parse_known_args()
+    # Log training parameters
+    print("Training parameters:")
+    print(f"  Dataset: {args.dataset}")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"  Learning rate: {args.lr}")
+    print(f"  Max sequence length: {args.maxlen}")
+    print(f"  Hidden units: {args.hidden_units}")
+    print(f"  Number of blocks: {args.num_blocks}")
+    print(f"  Number of epochs: {args.num_epochs}")
+    print(f"  Number of heads: {args.num_heads}")
+    print(f"  Dropout rate: {args.dropout_rate}")
+    print(f"  L2 regularization: {args.l2_emb}")
+    print(f"  Context size: {args.cxt_size}")
+    print(f"  Use residual: {args.use_res}")
+    print(f"  Device: {args.device}")
+    print(f"  Save directory: {args.save_dir}")
+    print()
     (
         user_train,
         user_features,
@@ -120,9 +150,14 @@ def main():
         itemid2idx,
         args.device,
     )
+    user_valid_subset = evaluator.sample_user_subset(user_valid, percent=0.3)
 
     # Set up model save directory
-    save_dir = os.path.join("saved_models", args.dataset)
+    save_dir = (
+        args.save_dir
+        if args.save_dir is not None
+        else os.path.join("saved_models", args.dataset)
+    )
     os.makedirs(save_dir, exist_ok=True)
     best_model_path = os.path.join(save_dir, "best_model.pth")
 
@@ -133,7 +168,6 @@ def main():
         # Evaluate every 10 epochs
         if epoch % 10 == 0:
             torch.cuda.empty_cache()
-            user_valid_subset = evaluator.sample_user_subset(user_valid, percent=0.1)
             metrics = evaluator.evaluate(
                 user_train_split,
                 user_valid_subset,
@@ -144,6 +178,10 @@ def main():
             )
             print("Validation metrics (10% subset):")
             Evaluator.print_metrics_table(metrics)
+            # Save all validation metrics
+            metrics_path = os.path.join(save_dir, f"val_metrics.json")
+            with open(metrics_path, "w") as f:
+                json.dump(convert_to_native(metrics), f, indent=2)
             ndcg20 = metrics["ndcg@20"]
             if ndcg20 > best_ndcg20:
                 best_ndcg20 = ndcg20
@@ -151,40 +189,6 @@ def main():
                 print(f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}")
     print(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
 
-    # After training, evaluate on the test set
-    print("\nEvaluating on the test set with the best model...")
-    # Load best model
-    model.load_state_dict(torch.load(best_model_path))
-    model.eval()
-    # Use the full test set
-    if hasattr(evaluator, "user_test") and evaluator.user_test is not None:
-        user_test_set = evaluator.user_test
-    else:
-        # Try to load from file if not present
-        out_dir = "Data/movielens_preprocessed"
-        try:
-            with open(os.path.join(out_dir, "user_test.pkl"), "rb") as f:
-                user_test_set = pickle.load(f)
-        except Exception as e:
-            print("Test set not found. Skipping test evaluation.")
-            user_test_set = None
-    if user_test_set is not None:
-        test_metrics = evaluator.evaluate(
-            user_train_split,
-            user_test_set,
-            k=20,
-            batch_size=32,
-            candidate_chunk_size=200,
-        )
-        print("Test set metrics:")
-        Evaluator.print_metrics_table(test_metrics)
-        if "distance_gender" in test_metrics:
-            print(f"  Distance (gender): {test_metrics['distance_gender']:.4f}")
-        if "distance_age" in test_metrics:
-            print(f"  Distance (age): {test_metrics['distance_age']:.4f}")
-    else:
-        print("No test set available for evaluation.")
-
 
 if __name__ == "__main__":
-    main()
+    train()

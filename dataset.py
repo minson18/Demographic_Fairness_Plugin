@@ -142,8 +142,6 @@ def load_dataset(dataset_name, maxlen=50, data_dir=None, cxt_size=6):
     cxt_size: context feature size for Amazon datasets
     Returns: user_train, user_features, itemnum, cxtdict, cxtsize, maxlen, item_features, usernum
     """
-    import numpy as np
-    import os, pickle
 
     if dataset_name == "ml-1m":
         if data_dir is None:

@@ -5,6 +5,7 @@ from dataset import load_dataset
 from model import CARCA
 from evaluate import Evaluator, load_best_model
 import argparse
+import json
 
 
 def load_split(split_name, out_dir):
@@ -12,14 +13,46 @@ def load_split(split_name, out_dir):
         return pickle.load(f)
 
 
-def main():
+def test():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="ml-1m")
     parser.add_argument("--maxlen", type=int, default=50)
     parser.add_argument("--model_path", type=str, default=None)
+    parser.add_argument(
+        "--model_dir",
+        type=str,
+        default=None,
+        help="Directory containing best_model.pth and optionally val_metrics.json/config.json",
+    )
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--candidate_chunk_size", type=int, default=200)
-    args = parser.parse_args()
+    # Add more hyperparameters as needed
+    parser.add_argument("--hidden_units", type=int, default=90)
+    parser.add_argument("--num_blocks", type=int, default=3)
+    parser.add_argument("--num_heads", type=int, default=1)
+    parser.add_argument("--dropout_rate", type=float, default=0.5)
+    parser.add_argument("--l2_emb", type=float, default=0.0001)
+    parser.add_argument("--cxt_size", type=int, default=6)
+    parser.add_argument("--use_res", type=bool, default=True)
+    args, _ = parser.parse_known_args()
+
+    # If model_dir is provided, override model_path and try to load config/metrics
+    if args.model_dir is not None:
+        model_path = os.path.join(args.model_dir, "best_model.pth")
+        # Try to load val_metrics.json or config.json for hyperparameters
+        config_path = os.path.join(args.model_dir, "val_metrics.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                val_metrics = json.load(f)
+            # Optionally, set hyperparameters from val_metrics if stored
+            # (Assumes you store them in val_metrics, or you can add a config.json)
+        else:
+            val_metrics = None
+    elif args.model_path is not None:
+        model_path = args.model_path
+        val_metrics = None
+    else:
+        model_path = os.path.join("saved_models", args.dataset, "best_model.pth")
 
     out_dir = f"Data/movielens_preprocessed"
     (
@@ -37,23 +70,24 @@ def main():
     user_train_split = load_split("user_train_split.pkl", out_dir)
     user_test = load_split("user_test.pkl", out_dir)
 
-    model_path = args.model_path or f"saved_models/{args.dataset}/best_model.pth"
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
 
+    # Use hyperparameters from args (or optionally from val_metrics/config)
+    model_args = argparse.Namespace(
+        hidden_units=args.hidden_units,
+        maxlen=args.maxlen,
+        num_blocks=args.num_blocks,
+        num_heads=args.num_heads,
+        dropout_rate=args.dropout_rate,
+        l2_emb=args.l2_emb,
+        cxt_size=args.cxt_size,
+        use_res=args.use_res,
+    )
     model = CARCA(
         usernum,
         itemnum,
-        argparse.Namespace(
-            hidden_units=90,
-            maxlen=args.maxlen,
-            num_blocks=3,
-            num_heads=1,
-            dropout_rate=0.5,
-            l2_emb=0.0001,
-            cxt_size=cxtsize,
-            use_res=True,
-        ),
+        model_args,
         item_features.shape[1],
         user_features.shape[1],
         cxtsize,
@@ -75,8 +109,8 @@ def main():
         user_train_split,
         user_test,
         k=20,
-        batch_size=args.batch_size,
-        candidate_chunk_size=args.candidate_chunk_size,
+        batch_size=32,
+        candidate_chunk_size=200,
     )
     print("Test set metrics:")
     Evaluator.print_metrics_table(metrics)
@@ -84,7 +118,11 @@ def main():
         print(f"  Distance (gender): {metrics['distance_gender']:.4f}")
     if "distance_age" in metrics:
         print(f"  Distance (age): {metrics['distance_age']:.4f}")
+    # Save test metrics
+    if args.model_dir is not None:
+        with open(os.path.join(args.model_dir, "test_metrics.json"), "w") as f:
+            json.dump(metrics, f, indent=2)
 
 
 if __name__ == "__main__":
-    main()
+    test()

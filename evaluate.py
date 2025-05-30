@@ -399,36 +399,132 @@ class Evaluator:
             results[f"mrr@{topk}"] = metrics.mrr_at_k(topk)
             results[f"hit@{topk}"] = metrics.hit_at_k(topk)
         if fairness_metrics:
-            all_scores_gender = np.concatenate(all_scores_gender, axis=0)
+            num_repeats = 3
+            # Gender fairness: multiple random swaps
+            all_scores_gender = []
+            for repeat in range(num_repeats):
+                swapped_genders = [1 - int(self.user_features[u - 1][0]) for u in users]
+                batch_gender_scores = []
+                for start in range(0, len(users), batch_size):
+                    end = min(start + batch_size, len(users))
+                    batch_users = users[start:end]
+                    batch_train_seqs = [user_train[u] for u in batch_users]
+                    batch_swapped_genders = [
+                        swapped_genders[i] for i in range(start, end)
+                    ]
+                    batch_scores_gender = self._get_all_scores_batch(
+                        batch_users,
+                        batch_train_seqs,
+                        candidate_chunk_size,
+                        swap_gender=batch_swapped_genders,
+                    )
+                    batch_gender_scores.append(batch_scores_gender)
+                all_scores_gender.append(np.concatenate(batch_gender_scores, axis=0))
             results["distance_gender"] = metrics.distance_to(all_scores_gender, k)
-            # Delta NDCG for gender
+            # Delta NDCG for gender (average over repeats)
             for topk in [1, 5, 10, 20]:
-                results[f"delta_ndcg_gender@{topk}"] = metrics.delta_ndcg_at_k(
-                    all_scores_gender, topk
+                delta_ndcg_gender = np.mean(
+                    [
+                        metrics.delta_ndcg_at_k(all_scores_gender[repeat], topk)
+                        for repeat in range(num_repeats)
+                    ]
                 )
+                results[f"delta_ndcg_gender@{topk}"] = delta_ndcg_gender
+            # Age fairness: multiple random swaps
+            all_scores_age = [[] for _ in range(7)]
             for age_group in range(7):
-                all_scores_age[age_group] = np.concatenate(
-                    all_scores_age[age_group], axis=0
-                )
+                for repeat in range(num_repeats):
+                    swapped_ages = []
+                    for u in users:
+                        original_age = int(self.user_features[u - 1][1])
+                        # Randomly pick a different age group
+                        choices = [ag for ag in range(7) if ag != original_age]
+                        swapped_ages.append(np.random.choice(choices))
+                    batch_age_scores = []
+                    for start in range(0, len(users), batch_size):
+                        end = min(start + batch_size, len(users))
+                        batch_users = users[start:end]
+                        batch_train_seqs = [user_train[u] for u in batch_users]
+                        batch_swapped_ages = [
+                            swapped_ages[i] for i in range(start, end)
+                        ]
+                        batch_scores_age = self._get_all_scores_batch(
+                            batch_users,
+                            batch_train_seqs,
+                            candidate_chunk_size,
+                            swap_age=batch_swapped_ages,
+                        )
+                        batch_age_scores.append(batch_scores_age)
+                    all_scores_age[age_group].append(
+                        np.concatenate(batch_age_scores, axis=0)
+                    )
             results["distance_age"] = np.mean(
                 [
                     metrics.distance_to(all_scores_age[age_group], k)
                     for age_group in range(7)
                 ]
             )
-            # Delta NDCG for age (mean over age groups)
+            # Delta NDCG for age (mean over age groups and repeats)
             for topk in [1, 5, 10, 20]:
                 delta_ndcg_age = np.mean(
                     [
-                        metrics.delta_ndcg_at_k(all_scores_age[age_group], topk)
+                        np.mean(
+                            [
+                                metrics.delta_ndcg_at_k(
+                                    all_scores_age[age_group][repeat], topk
+                                )
+                                for repeat in range(num_repeats)
+                            ]
+                        )
                         for age_group in range(7)
                     ]
                 )
                 results[f"delta_ndcg_age@{topk}"] = delta_ndcg_age
+            # Occupation fairness: multiple random swaps
+            num_occ = self.user_features.shape[1] - 3
+            all_scores_occ = []
+            for repeat in range(num_repeats):
+                swapped_occs = []
+                for u in users:
+                    user_feat = self.user_features[u - 1]
+                    original_occ_idx = np.argmax(user_feat[3 : 3 + num_occ])
+                    choices = [i for i in range(num_occ) if i != original_occ_idx]
+                    new_occ_idx = np.random.choice(choices)
+                    swapped_occs.append(new_occ_idx)
+                batch_occ_scores = []
+                for start in range(0, len(users), batch_size):
+                    end = min(start + batch_size, len(users))
+                    batch_users = users[start:end]
+                    batch_train_seqs = [user_train[u] for u in batch_users]
+                    batch_swapped_occs = [swapped_occs[i] for i in range(start, end)]
+                    batch_scores_occ = self._get_all_scores_batch(
+                        batch_users,
+                        batch_train_seqs,
+                        candidate_chunk_size,
+                        swap_occupation=batch_swapped_occs,
+                    )
+                    batch_occ_scores.append(batch_scores_occ)
+                all_scores_occ.append(np.concatenate(batch_occ_scores, axis=0))
+            results["distance_occupation"] = metrics.distance_to(all_scores_occ, k)
+            # Delta NDCG for occupation (average over repeats)
+            for topk in [1, 5, 10, 20]:
+                delta_ndcg_occ = np.mean(
+                    [
+                        metrics.delta_ndcg_at_k(all_scores_occ[repeat], topk)
+                        for repeat in range(num_repeats)
+                    ]
+                )
+                results[f"delta_ndcg_occupation@{topk}"] = delta_ndcg_occ
         return results
 
     def _get_all_scores_batch(
-        self, users, train_seqs, candidate_chunk_size, swap_gender=None, swap_age=None
+        self,
+        users,
+        train_seqs,
+        candidate_chunk_size,
+        swap_gender=None,
+        swap_age=None,
+        swap_occupation=None,
     ):
         batch_size = len(users)
         num_candidates = len(self.candidate_items)
@@ -443,6 +539,12 @@ class Evaluator:
             user_feats[:, 1] = torch.tensor(
                 swap_age, dtype=user_feats.dtype, device=self.device
             )
+        # Handle occupation swap (one-hot)
+        if swap_occupation is not None:
+            num_occ = user_feats.shape[1] - 3  # [gender, age, zip_hash] + occ_onehot
+            for i, occ_idx in enumerate(swap_occupation):
+                user_feats[i, 3 : 3 + num_occ] = 0
+                user_feats[i, 3 + occ_idx] = 1
         seqs = np.zeros((batch_size, maxlen), dtype=np.int32)
         seq_feats = np.zeros(
             (batch_size, maxlen, self.item_features.shape[1]), dtype=np.float32
@@ -581,6 +683,17 @@ class Evaluator:
             if f"delta_ndcg_age@{k}" in metrics:
                 print(
                     f"  Delta NDCG (age)@{k}: {metrics[f'delta_ndcg_age@{k}']:.4f}",
+                    flush=True,
+                )
+        if "distance_occupation" in metrics:
+            print(
+                f"  Distance (occupation): {metrics['distance_occupation']:.4f}",
+                flush=True,
+            )
+        for k in [1, 5, 10, 20]:
+            if f"delta_ndcg_occupation@{k}" in metrics:
+                print(
+                    f"  Delta NDCG (occupation)@{k}: {metrics[f'delta_ndcg_occupation@{k}']:.4f}",
                     flush=True,
                 )
 

@@ -54,41 +54,34 @@ class Metrics:
         hits = (ranks < k).astype(np.float32)
         return np.mean(hits)
 
-    def distance_to(self, other: np.ndarray, k: Optional[int] = None) -> float:
+    @staticmethod
+    def softmax(x):
+        e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+        return e_x / e_x.sum(axis=1, keepdims=True)
+
+    def distance_to(self, others: list, k: Optional[int] = None) -> float:
         """
-        Compute the mean Normalized Spearman Footrule Distance between this distribution and another (e.g., swapped feature predictions).
-        If k is given, only top-k items are considered; otherwise, use all items.
-        other: shape (num_users, num_items)
-        Returns: mean distance over all users
+        Compute the mean Euclidean distance between this distribution and multiple others.
+        Each 'other' is a score matrix (num_users, num_items).
+        Returns: mean distance over all users and all others.
         """
-        assert other.shape == self.all_scores.shape
-        n_users, n_items = self.all_scores.shape
-        distances = np.zeros(n_users)
-        for i in range(n_users):
-            # Get ranking for both distributions
+        self_probs = Metrics.softmax(self.all_scores)
+        distances = []
+        for other in others:
+            assert other.shape == self.all_scores.shape
+            other_probs = Metrics.softmax(other)
             if k is not None:
-                R = np.argsort(-self.all_scores[i])[:k]
-                S = np.argsort(-other[i])[:k]
+                # Only consider top-k items for each user
+                topk_idx = np.argsort(self_probs, axis=1)[:, -k:]
+                user_distances = []
+                for i in range(self_probs.shape[0]):
+                    idx = topk_idx[i]
+                    diff = self_probs[i, idx] - other_probs[i, idx]
+                    user_distances.append(np.linalg.norm(diff))
+                distances.append(np.mean(user_distances))
             else:
-                R = np.argsort(-self.all_scores[i])
-                S = np.argsort(-other[i])
-            # Build rank dicts
-            rank_R = {item: idx + 1 for idx, item in enumerate(R)}
-            rank_S = {item: idx + 1 for idx, item in enumerate(S)}
-            union = set(R) | set(S)
-
-            def safe_log2(x):
-                return math.log2(x + 1) if x != np.inf else np.inf
-
-            F = sum(
-                abs(
-                    1 / safe_log2(rank_R.get(item, np.inf))
-                    - 1 / safe_log2(rank_S.get(item, np.inf))
-                )
-                for item in union
-            )
-            norm = sum([1 / safe_log2(i + 1) for i in range(len(R))]) / 2
-            distances[i] = F / norm if norm > 0 else 0.0
+                user_distances = np.linalg.norm(self_probs - other_probs, axis=1)
+                distances.append(np.mean(user_distances))
         return np.mean(distances)
 
     def per_user_ndcg_at_k(self, k: int) -> np.ndarray:
