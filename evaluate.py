@@ -49,6 +49,10 @@ class Evaluator:
         # Cache candidate contexts for all items (for get_top_k efficiency)
         self.candidate_contexts_cache = {}
 
+        self.num_repeats = (
+            3  # Number of times to repeat the evaluation in for fairness swap
+        )
+
     @staticmethod
     def split_user_sequences(user_train: Dict) -> tuple:
         """
@@ -395,7 +399,7 @@ class Evaluator:
                 results[f"delta_ndcg_gender@{topk}"] = delta_ndcg_gender
             # Age fairness: multiple random swaps
             all_scores_age = []
-            for repeat in tqdm(range(num_repeats), desc="Age fairness repeats"):
+            for repeat in tqdm(range(self.num_repeats), desc="Age fairness repeats"):
                 swapped_ages = []
                 for u in users:
                     original_age = int(self.user_features[u - 1][1])
@@ -423,14 +427,16 @@ class Evaluator:
                 delta_ndcg_age = np.mean(
                     [
                         metrics.delta_ndcg_at_k(all_scores_age[repeat], topk)
-                        for repeat in range(num_repeats)
+                        for repeat in range(self.num_repeats)
                     ]
                 )
                 results[f"delta_ndcg_age@{topk}"] = delta_ndcg_age
             # Occupation fairness: multiple random swaps
             num_occ = self.user_features.shape[1] - 3
             all_scores_occ = []
-            for repeat in tqdm(range(num_repeats), desc="Occupation fairness repeats"):
+            for repeat in tqdm(
+                range(self.num_repeats), desc="Occupation fairness repeats"
+            ):
                 swapped_occs = []
                 for u in users:
                     user_feat = self.user_features[u - 1]
@@ -460,7 +466,7 @@ class Evaluator:
                 delta_ndcg_occ = np.mean(
                     [
                         metrics.delta_ndcg_at_k(all_scores_occ[repeat], topk)
-                        for repeat in range(num_repeats)
+                        for repeat in range(self.num_repeats)
                     ]
                 )
                 results[f"delta_ndcg_occupation@{topk}"] = delta_ndcg_occ
