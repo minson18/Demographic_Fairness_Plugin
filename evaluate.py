@@ -357,7 +357,7 @@ class Evaluator:
         true_items = np.array([self.itemid2idx[user_eval[u]] for u in users])
         all_scores = []
         all_scores_gender = []
-        all_scores_age = [[] for _ in range(7)]
+        all_scores_age = []
         for start in tqdm(
             range(0, len(users), batch_size), desc="Evaluating users", unit="user"
         ):
@@ -382,15 +382,16 @@ class Evaluator:
                 )
                 all_scores_gender.append(batch_scores_gender)
                 # Per-user age swap (7 groups)
-                for age_group in range(7):
-                    swapped_ages = [age_group for _ in batch_users]
-                    batch_scores_age = self._get_all_scores_batch(
+                all_scores_age.append(
+                    self._get_all_scores_batch(
                         batch_users,
                         batch_train_seqs,
                         candidate_chunk_size,
-                        swap_age=swapped_ages,
+                        swap_age=[
+                            int(self.user_features[u - 1][1]) for _ in batch_users
+                        ],
                     )
-                    all_scores_age[age_group].append(batch_scores_age)
+                )
         all_scores = np.concatenate(all_scores, axis=0)
         metrics = Metrics(all_scores, true_items)
         results = {}
@@ -402,7 +403,7 @@ class Evaluator:
             num_repeats = 3
             # Gender fairness: multiple random swaps
             all_scores_gender = []
-            for repeat in range(num_repeats):
+            for repeat in tqdm(range(num_repeats), desc="Gender fairness repeats"):
                 swapped_genders = [1 - int(self.user_features[u - 1][0]) for u in users]
                 batch_gender_scores = []
                 for start in range(0, len(users), batch_size):
@@ -431,59 +432,41 @@ class Evaluator:
                 )
                 results[f"delta_ndcg_gender@{topk}"] = delta_ndcg_gender
             # Age fairness: multiple random swaps
-            all_scores_age = [[] for _ in range(7)]
-            for age_group in range(7):
-                for repeat in range(num_repeats):
-                    swapped_ages = []
-                    for u in users:
-                        original_age = int(self.user_features[u - 1][1])
-                        # Randomly pick a different age group
-                        choices = [ag for ag in range(7) if ag != original_age]
-                        swapped_ages.append(np.random.choice(choices))
-                    batch_age_scores = []
-                    for start in range(0, len(users), batch_size):
-                        end = min(start + batch_size, len(users))
-                        batch_users = users[start:end]
-                        batch_train_seqs = [user_train[u] for u in batch_users]
-                        batch_swapped_ages = [
-                            swapped_ages[i] for i in range(start, end)
-                        ]
-                        batch_scores_age = self._get_all_scores_batch(
-                            batch_users,
-                            batch_train_seqs,
-                            candidate_chunk_size,
-                            swap_age=batch_swapped_ages,
-                        )
-                        batch_age_scores.append(batch_scores_age)
-                    all_scores_age[age_group].append(
-                        np.concatenate(batch_age_scores, axis=0)
+            all_scores_age = []
+            for repeat in tqdm(range(num_repeats), desc="Age fairness repeats"):
+                swapped_ages = []
+                for u in users:
+                    original_age = int(self.user_features[u - 1][1])
+                    choices = [ag for ag in range(7) if ag != original_age]
+                    swapped_ages.append(np.random.choice(choices))
+                batch_age_scores = []
+                for start in range(0, len(users), batch_size):
+                    end = min(start + batch_size, len(users))
+                    batch_users = users[start:end]
+                    batch_train_seqs = [user_train[u] for u in batch_users]
+                    batch_swapped_ages = [swapped_ages[i] for i in range(start, end)]
+                    batch_scores_age = self._get_all_scores_batch(
+                        batch_users,
+                        batch_train_seqs,
+                        candidate_chunk_size,
+                        swap_age=batch_swapped_ages,
                     )
-            results["distance_age"] = np.mean(
-                [
-                    metrics.distance_to(all_scores_age[age_group], k)
-                    for age_group in range(7)
-                ]
-            )
-            # Delta NDCG for age (mean over age groups and repeats)
+                    batch_age_scores.append(batch_scores_age)
+                all_scores_age.append(np.concatenate(batch_age_scores, axis=0))
+            results["distance_age"] = metrics.distance_to(all_scores_age, k)
+            # Delta NDCG for age (average over repeats)
             for topk in [1, 5, 10, 20]:
                 delta_ndcg_age = np.mean(
                     [
-                        np.mean(
-                            [
-                                metrics.delta_ndcg_at_k(
-                                    all_scores_age[age_group][repeat], topk
-                                )
-                                for repeat in range(num_repeats)
-                            ]
-                        )
-                        for age_group in range(7)
+                        metrics.delta_ndcg_at_k(all_scores_age[repeat], topk)
+                        for repeat in range(num_repeats)
                     ]
                 )
                 results[f"delta_ndcg_age@{topk}"] = delta_ndcg_age
             # Occupation fairness: multiple random swaps
             num_occ = self.user_features.shape[1] - 3
             all_scores_occ = []
-            for repeat in range(num_repeats):
+            for repeat in tqdm(range(num_repeats), desc="Occupation fairness repeats"):
                 swapped_occs = []
                 for u in users:
                     user_feat = self.user_features[u - 1]
