@@ -36,12 +36,15 @@ def test():
     parser.add_argument("--use_res", type=bool, default=True)
     args, _ = parser.parse_known_args()
 
+    print("[INFO] Starting test.py")
     # If model_dir is provided, override model_path and try to load config/metrics
     if args.model_dir is not None:
         model_path = os.path.join(args.model_dir, "best_model.pth")
+        print(f"[INFO] Using model_dir: {args.model_dir}")
         # Try to load val_metrics.json or config.json for hyperparameters
         config_path = os.path.join(args.model_dir, "val_metrics.json")
         if os.path.exists(config_path):
+            print(f"[INFO] Found val_metrics.json at {config_path}")
             with open(config_path, "r") as f:
                 val_metrics = json.load(f)
             # Optionally, set hyperparameters from val_metrics if stored
@@ -50,11 +53,14 @@ def test():
             val_metrics = None
     elif args.model_path is not None:
         model_path = args.model_path
+        print(f"[INFO] Using model_path: {model_path}")
         val_metrics = None
     else:
         model_path = os.path.join("saved_models", args.dataset, "best_model.pth")
+        print(f"[INFO] Using default model_path: {model_path}")
 
     out_dir = f"Data/movielens_preprocessed"
+    print(f"[INFO] Loading dataset: {args.dataset} (maxlen={args.maxlen})")
     (
         user_train,
         user_features,
@@ -67,12 +73,15 @@ def test():
         itemid2idx,
     ) = load_dataset(args.dataset, maxlen=args.maxlen)
 
+    print(f"[INFO] Loading user_train_split and user_test from {out_dir}")
     user_train_split = load_split("user_train_split.pkl", out_dir)
     user_test = load_split("user_test.pkl", out_dir)
 
     if not os.path.exists(model_path):
+        print(f"[ERROR] Model file not found: {model_path}")
         raise FileNotFoundError(f"Model file not found: {model_path}")
 
+    print(f"[INFO] Loading model from {model_path}")
     # Use hyperparameters from args (or optionally from val_metrics/config)
     model_args = argparse.Namespace(
         hidden_units=args.hidden_units,
@@ -97,6 +106,7 @@ def test():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
+    print("[INFO] Starting evaluation on test set...")
     evaluator = Evaluator(
         model,
         user_features,
@@ -112,7 +122,7 @@ def test():
         batch_size=32,
         candidate_chunk_size=200,
     )
-    print("Test set metrics:")
+    print("[INFO] Test set metrics:")
     Evaluator.print_metrics_table(metrics)
     if "distance_gender" in metrics:
         print(f"  Distance (gender): {metrics['distance_gender']:.4f}")
@@ -120,8 +130,11 @@ def test():
         print(f"  Distance (age): {metrics['distance_age']:.4f}")
     # Save test metrics
     if args.model_dir is not None:
-        with open(os.path.join(args.model_dir, "test_metrics.json"), "w") as f:
+        save_path = os.path.join(args.model_dir, "test_metrics.json")
+        with open(save_path, "w") as f:
             json.dump(metrics, f, indent=2)
+        print(f"[INFO] Test metrics saved to {save_path}")
+    print("[INFO] Evaluation complete.")
 
 
 if __name__ == "__main__":
