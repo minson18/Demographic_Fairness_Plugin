@@ -181,3 +181,20 @@ item_ratings = ratings_matrix[:, item_col]
 - PyTorch migration of [CARCA](https://github.com/ahmedrashed57/CARCA) by Ahmed Rashed et al.
 - Migration and modernization by [your name or organization].
 
+## Implementation Notes
+
+### Dataset Negative Sampling and ID Mapping
+- **Negative Sampling:**
+  - During training, for each positive interaction, a negative item is sampled that the user has not interacted with. If no valid negative can be found (i.e., the user has interacted with all items), the pad index (`0`) is used for the negative item and its features/contexts.
+  - Negative sampling is efficient due to per-user caching of seen items.
+- **Item ID Mapping:**
+  - For MovieLens, all item IDs are mapped using `itemid2idx`.
+  - For Amazon datasets, if no mapping is provided, item IDs are assumed to be 1-based and are converted to 0-based indices internally.
+- **Context Padding:**
+  - When a context is missing (e.g., for a padded or negative item), a shared zero vector is used for context features.
+- The dataset logic is robust and correct for both MovieLens and Amazon domains, with correct sequence truncation, context alignment, and negative sampling.
+
+### Evaluation Pipeline
+
+- All evaluation and fairness metrics (NDCG, Hit, MRR, and demographic parity) are computed using the full score matrix for each user, not just the top-k predictions. This ensures correctness and comparability with standard benchmarks.
+

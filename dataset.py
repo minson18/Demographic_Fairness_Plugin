@@ -36,6 +36,10 @@ class SequentialRecDataset(Dataset):
         self.userid2idx = {
             uid: idx for idx, uid in enumerate(range(1, len(user_features) + 1))
         }
+        # Cache each user's set of seen items for efficient negative sampling
+        self.user_seen_items = {u: set(seq) for u, seq in user_train.items()}
+        # Shared zero context for padding
+        self.zero_cxt = np.zeros(self.cxtsize, dtype=np.float32)
 
     def _map_userid(self, userid):
         return self.userid2idx.get(userid, 0)
@@ -46,7 +50,9 @@ class SequentialRecDataset(Dataset):
     def _map_itemid(self, itemid):
         if self.itemid2idx is not None:
             return self.itemid2idx.get(itemid, 0)
-        return itemid
+        # For Amazon datasets, assume itemid is 1-based and convert to 0-based
+        # If your preprocessing already makes them 0-based, remove the -1
+        return itemid - 1
 
     def __getitem__(self, idx):
         user = self.users[idx]
@@ -57,27 +63,30 @@ class SequentialRecDataset(Dataset):
         poscxt = np.zeros([self.maxlen, self.cxtsize], dtype=np.float32)
         negcxt = np.zeros([self.maxlen, self.cxtsize], dtype=np.float32)
         user_seq = self.user_train[user]
-        ts = set(user_seq)
+        ts = self.user_seen_items[user]
         nxt = user_seq[-1]
         idx_ = self.maxlen - 1
         for i in reversed(user_seq[:-1]):
             seq[idx_] = self._map_itemid(i)
             pos[idx_] = self._map_itemid(nxt)
-            neg_i = 0
-            if nxt != 0:
+            # Negative sampling with max attempts
+            max_attempts = 100
+            for _ in range(max_attempts):
                 neg_i_raw = np.random.randint(1, self.itemnum + 1)
-                while neg_i_raw in ts:
-                    neg_i_raw = np.random.randint(1, self.itemnum + 1)
-                neg[idx_] = self._map_itemid(neg_i_raw)
-            seqcxt[idx_] = self.cxtdict.get(
-                (user, i), np.zeros(self.cxtsize, dtype=np.float32)
-            )
-            poscxt[idx_] = self.cxtdict.get(
-                (user, nxt), np.zeros(self.cxtsize, dtype=np.float32)
-            )
-            negcxt[idx_] = self.cxtdict.get(
-                (user, nxt), np.zeros(self.cxtsize, dtype=np.float32)
-            )
+                if neg_i_raw not in ts:
+                    break
+            else:
+                neg_i_raw = None  # use None to signal padding
+            if neg_i_raw is None:
+                neg_idx = 0  # pad index for both ML and Amazon
+                neg_item_for_cxt = 0  # use 0 for context key, will default to zero_cxt
+            else:
+                neg_idx = self._map_itemid(neg_i_raw)
+                neg_item_for_cxt = neg_i_raw
+            neg[idx_] = neg_idx
+            seqcxt[idx_] = self.cxtdict.get((user, i), self.zero_cxt)
+            poscxt[idx_] = self.cxtdict.get((user, nxt), self.zero_cxt)
+            negcxt[idx_] = self.cxtdict.get((user, neg_item_for_cxt), self.zero_cxt)
             nxt = i
             idx_ -= 1
             if idx_ == -1:
@@ -248,14 +257,14 @@ def load_dataset(dataset_name, maxlen=50, data_dir=None, cxt_size=6):
         from data_utils import (
             data_partition,
             get_ItemDataGames,
-            get_UserDataFashion,
+            get_UserDataGames,
             load_data,
         )
 
         dataset = data_partition("Video_Games")
         user_train, user_valid, user_test, usernum, itemnum = dataset
         item_features = get_ItemDataGames(itemnum)
-        user_features = get_UserDataFashion(usernum)
+        user_features = get_UserDataGames(usernum)
         cxtdict = load_data("./Data/CXTDictSasRec_Games.dat")
         cxtsize = cxt_size
         return (

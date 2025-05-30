@@ -46,6 +46,8 @@ class Evaluator:
         self.user_features_tensor = torch.tensor(
             self.user_features, dtype=torch.float32, device=self.device
         )
+        # Cache candidate contexts for all items (for get_top_k efficiency)
+        self.candidate_contexts_cache = {}
 
     @staticmethod
     def split_user_sequences(user_train: Dict) -> tuple:
@@ -74,42 +76,40 @@ class Evaluator:
         Build sequence, feature, and context tensors for a user's history.
         """
         maxlen = self.model.maxlen
-        mapped_train_seq = [
-            self.itemid2idx[i] for i in train_seq if i in self.itemid2idx
-        ]
-        if len(mapped_train_seq) > maxlen - 1:
-            mapped_train_seq = mapped_train_seq[-(maxlen - 1) :]
+        # 1) map & truncate
+        mapped = [self.itemid2idx[i] for i in train_seq if i in self.itemid2idx]
+        if len(mapped) > maxlen - 1:
+            mapped = mapped[-(maxlen - 1) :]
+            orig_tail = [i for i in train_seq if i in self.itemid2idx][-(maxlen - 1) :]
+        else:
+            orig_tail = [i for i in train_seq if i in self.itemid2idx]
+        # 2) build the index sequence (same as before)
         seq = np.zeros([maxlen], dtype=np.int32)
-        seq[-(len(mapped_train_seq) + 1) : -1] = (
-            mapped_train_seq if len(mapped_train_seq) > 0 else []
-        )
+        seq[-(len(mapped) + 1) : -1] = mapped
         seq_tensor = torch.tensor(seq, dtype=torch.long, device=self.device).unsqueeze(
             0
         )
+        # 3) build features (same as before)
         seq_feat = torch.zeros(
             (1, maxlen, self.item_features.shape[1]),
             dtype=torch.float32,
             device=self.device,
         )
-        if len(mapped_train_seq) > 0:
-            seq_feat[0, -(len(mapped_train_seq) + 1) : -1] = torch.tensor(
-                self.item_features[mapped_train_seq],
-                dtype=torch.float32,
-                device=self.device,
+        if mapped:
+            seq_feat[0, -(len(mapped) + 1) : -1] = torch.tensor(
+                self.item_features[mapped], dtype=torch.float32, device=self.device
             )
+        # 4) correct context loop
         seqcxt = torch.zeros(
             (1, maxlen, self.model.cxt_size), dtype=torch.float32, device=self.device
         )
-        for idx, item in enumerate(
-            seq_tensor.cpu().numpy()[0][-(len(mapped_train_seq) + 1) : -1]
-        ):
-            if item != 0:
-                orig_item = train_seq[idx] if idx < len(train_seq) else 0
-                seqcxt[0, -(len(mapped_train_seq) + 1) + idx, :] = torch.tensor(
-                    self.cxtdict.get((user, orig_item), np.zeros(self.model.cxt_size)),
-                    dtype=torch.float32,
-                    device=self.device,
-                )
+        for j, orig_item in enumerate(orig_tail):
+            pos = -(len(mapped) + 1) + j
+            seqcxt[0, pos, :] = torch.tensor(
+                self.cxtdict.get((user, orig_item), np.zeros(self.model.cxt_size)),
+                dtype=torch.float32,
+                device=self.device,
+            )
         return seq_tensor, seq_feat, seqcxt
 
     def _build_candidate_context(self, user: int) -> torch.Tensor:
@@ -117,14 +117,17 @@ class Evaluator:
         Build context tensor for all candidate items for the given user.
         Returns: (num_candidates, cxt_size)
         """
+        # Cache per-user candidate contexts if not already cached
+        if user in self.candidate_contexts_cache:
+            return self.candidate_contexts_cache[user]
         cxts = [
             self.cxtdict.get((user, item), np.zeros(self.model.cxt_size))
             for item in self.candidate_items
         ]
-        cxts = np.array(
-            cxts, dtype=np.float32
-        )  # Convert list of arrays to a single numpy array
-        return torch.tensor(cxts, dtype=torch.float32, device=self.device)
+        cxts = np.array(cxts, dtype=np.float32)
+        tensor_cxts = torch.tensor(cxts, dtype=torch.float32, device=self.device)
+        self.candidate_contexts_cache[user] = tensor_cxts
+        return tensor_cxts
 
     def get_top_k(
         self,
@@ -133,42 +136,39 @@ class Evaluator:
         k: int = 20,
         swap_gender: Optional[int] = None,
         swap_age: Optional[int] = None,
+        swap_occupation: Optional[int] = None,  # Added occupation swap
     ) -> List[int]:
         """
-        Generate top-k recommendations for a user, optionally swapping gender/age features.
+        Generate top-k recommendations for a user, optionally swapping gender/age/occupation features.
         Uses the model to score all candidate items in a single batch for efficiency.
         Only the last position in the sequence/context is changed per candidate item.
         """
-        # --- User feature ---
         user_idx = user - 1  # MovieLens user IDs are 1-based
         user_feat = self.user_features_tensor[user_idx].clone()
         if swap_gender is not None:
             user_feat[0] = swap_gender
         if swap_age is not None:
             user_feat[1] = swap_age
+        if swap_occupation is not None:
+            num_occ = user_feat.shape[0] - 3
+            user_feat[3 : 3 + num_occ] = 0
+            user_feat[3 + swap_occupation] = 1
         user_feat = user_feat.unsqueeze(0)
-
-        # --- Sequence/history tensors ---
         seq, seq_feat, seqcxt = self._build_sequence_tensors(train_seq, user)
         num_candidates = len(self.candidate_items)
-
-        # --- Prepare candidate tensors ---
         pos = seq.repeat(num_candidates, 1)
         pos_feat = seq_feat.repeat(num_candidates, 1, 1)
         poscxt = seqcxt.repeat(num_candidates, 1, 1)
-        # Set the last position for each candidate
         pos[:, -1] = torch.tensor(
             self.candidate_indices, dtype=torch.long, device=self.device
         )
         pos_feat[:, -1, :] = self.candidate_item_features
         poscxt[:, -1, :] = self._build_candidate_context(user)
-
-        # --- Repeat user/seq tensors for all candidates ---
         user_feat_batch = user_feat.repeat(num_candidates, 1)
-        seq_batch = seq.repeat(num_candidates, 1)
-        seq_feat_batch = seq_feat.repeat(num_candidates, 1, 1)
-        seqcxt_batch = seqcxt.repeat(num_candidates, 1, 1)
-        # Negatives can be dummy
+        # Reuse seq, seq_feat, seqcxt for both history and pos
+        seq_batch = pos
+        seq_feat_batch = pos_feat
+        seqcxt_batch = poscxt
         neg = pos
         neg_feat = pos_feat
         negcxt = poscxt
@@ -195,14 +195,24 @@ class Evaluator:
         Efficiently build context tensor for a batch of users and a chunk of items.
         Returns: (batch_size, chunk_size, cxt_size)
         """
+        # Vectorized version: build all (user, item) pairs and gather
         batch_size = len(users)
         chunk_size = len(chunk_items)
         cxt_size = self.model.cxt_size
-        contexts = np.zeros((batch_size, chunk_size, cxt_size), dtype=np.float32)
-        for i, user in enumerate(users):
-            for j, item in enumerate(chunk_items):
-                contexts[i, j] = self.cxtdict.get((user, item), np.zeros(cxt_size))
-        return torch.tensor(contexts, dtype=torch.float32, device=self.device)
+        user_arr = np.array(users).reshape(-1, 1)
+        item_arr = np.array(chunk_items).reshape(1, -1)
+        user_grid = np.broadcast_to(user_arr, (batch_size, chunk_size))
+        item_grid = np.broadcast_to(item_arr, (batch_size, chunk_size))
+        flat_user = user_grid.flatten()
+        flat_item = item_grid.flatten()
+        cxts = [
+            self.cxtdict.get((u, i), np.zeros(cxt_size))
+            for u, i in zip(flat_user, flat_item)
+        ]
+        cxts = np.array(cxts, dtype=np.float32).reshape(
+            batch_size, chunk_size, cxt_size
+        )
+        return torch.tensor(cxts, dtype=torch.float32, device=self.device)
 
     def get_top_k_batch(
         self,
@@ -211,6 +221,7 @@ class Evaluator:
         k: int = 20,
         swap_gender: Optional[List[int]] = None,
         swap_age: Optional[List[int]] = None,
+        swap_occupation: Optional[List[int]] = None,
         candidate_chunk_size: int = 500,
     ) -> List[List[int]]:
         batch_size = len(users)
@@ -220,7 +231,6 @@ class Evaluator:
         # User features
         user_indices = [u - 1 for u in users]
         user_feats = self.user_features_tensor[user_indices].clone()
-        # Per-user gender/age swap support
         if swap_gender is not None:
             user_feats[:, 0] = torch.tensor(
                 swap_gender, dtype=user_feats.dtype, device=self.device
@@ -229,51 +239,29 @@ class Evaluator:
             user_feats[:, 1] = torch.tensor(
                 swap_age, dtype=user_feats.dtype, device=self.device
             )
+        if swap_occupation is not None:
+            num_occ = user_feats.shape[1] - 3
+            for i, occ_idx in enumerate(swap_occupation):
+                user_feats[i, 3 : 3 + num_occ] = 0
+                user_feats[i, 3 + occ_idx] = 1
 
-        # Sequence/history tensors
-        seqs = np.zeros((batch_size, maxlen), dtype=np.int32)
-        seq_feats = np.zeros(
-            (batch_size, maxlen, self.item_features.shape[1]), dtype=np.float32
-        )
-        seqcxts = np.zeros((batch_size, maxlen, self.model.cxt_size), dtype=np.float32)
-        for i, (train_seq, user) in enumerate(zip(train_seqs, users)):
-            mapped_train_seq = [
-                self.itemid2idx[x] for x in train_seq if x in self.itemid2idx
-            ]
-            if len(mapped_train_seq) > maxlen - 1:
-                mapped_train_seq = mapped_train_seq[-(maxlen - 1) :]
-            seqs[i, -(len(mapped_train_seq) + 1) : -1] = (
-                mapped_train_seq if len(mapped_train_seq) > 0 else []
-            )
-            if len(mapped_train_seq) > 0:
-                seq_feats[i, -(len(mapped_train_seq) + 1) : -1, :] = self.item_features[
-                    mapped_train_seq
-                ]
-            for idx, item in enumerate(seqs[i, -(len(mapped_train_seq) + 1) : -1]):
-                if item != 0:
-                    orig_item = train_seq[idx] if idx < len(train_seq) else 0
-                    seqcxts[i, -(len(mapped_train_seq) + 1) + idx, :] = (
-                        self.cxtdict.get(
-                            (user, orig_item), np.zeros(self.model.cxt_size)
-                        )
-                    )
+        # Use _build_sequence_tensors for each user to ensure correct context alignment
+        seq_tensors = [
+            self._build_sequence_tensors(seq, user)
+            for seq, user in zip(train_seqs, users)
+        ]
+        seqs = torch.cat([t[0] for t in seq_tensors], dim=0)
+        seq_feats = torch.cat([t[1] for t in seq_tensors], dim=0)
+        seqcxts = torch.cat([t[2] for t in seq_tensors], dim=0)
 
-        # Convert to tensors
-        seqs = torch.tensor(seqs, dtype=torch.long, device=self.device)
-        seq_feats = torch.tensor(seq_feats, dtype=torch.float32, device=self.device)
-        seqcxts = torch.tensor(seqcxts, dtype=torch.float32, device=self.device)
         user_feats = user_feats.to(self.device)
-
         all_scores = []
-
         for chunk_start in range(0, num_candidates, candidate_chunk_size):
             chunk_end = min(chunk_start + candidate_chunk_size, num_candidates)
             chunk_indices = self.candidate_indices[chunk_start:chunk_end]
             chunk_items = self.candidate_items[chunk_start:chunk_end]
             chunk_item_features = self.candidate_item_features[chunk_start:chunk_end]
-            # Optimized context construction
             candidate_contexts = self.build_batch_candidate_context(users, chunk_items)
-
             chunk_size = chunk_end - chunk_start
             pos = seqs.unsqueeze(1).repeat(1, chunk_size, 1).reshape(-1, maxlen)
             pos_feat = (
@@ -299,7 +287,6 @@ class Evaluator:
                 poscxt[i * chunk_size : (i + 1) * chunk_size, -1, :] = (
                     candidate_contexts[i]
                 )
-
             user_feat_batch = (
                 user_feats.unsqueeze(1)
                 .repeat(1, chunk_size, 1)
@@ -319,7 +306,6 @@ class Evaluator:
             neg = pos
             neg_feat = pos_feat
             neg_cxt = poscxt
-
             with torch.no_grad():
                 pos_logits, _ = self.model(
                     user_feat_batch,
@@ -335,7 +321,6 @@ class Evaluator:
                 )
                 scores = pos_logits[:, -1].cpu().numpy().reshape(batch_size, chunk_size)
             all_scores.append(scores)
-
         all_scores = np.concatenate(all_scores, axis=1)
         topk_idx = np.argsort(all_scores, axis=1)[:, -k:][:, ::-1]
         topk_items = [[self.candidate_items[i] for i in row] for row in topk_idx]
@@ -353,45 +338,26 @@ class Evaluator:
         logger.info(
             f"Processing {len(user_eval)} users, batch_size={batch_size}, candidate_chunk_size={candidate_chunk_size}"
         )
-        users = list(user_eval.keys())
+        # Filter out users with None as their eval item
+        filtered_users = [u for u in user_eval if user_eval[u] is not None]
+        users = filtered_users
         true_items = np.array([self.itemid2idx[user_eval[u]] for u in users])
         all_scores = []
-        all_scores_gender = []
-        all_scores_age = []
         for start in tqdm(
             range(0, len(users), batch_size), desc="Evaluating users", unit="user"
         ):
             end = min(start + batch_size, len(users))
             batch_users = users[start:end]
             batch_train_seqs = [user_train[u] for u in batch_users]
-            # Normal prediction: get full scores for all items
             batch_scores = self._get_all_scores_batch(
-                batch_users, batch_train_seqs, candidate_chunk_size
+                batch_users,
+                batch_train_seqs,
+                candidate_chunk_size,
+                swap_gender=None,
+                swap_age=None,
+                swap_occupation=None,
             )
             all_scores.append(batch_scores)
-            if fairness_metrics:
-                # Per-user gender swap
-                swapped_genders = [
-                    1 - int(self.user_features[u - 1][0]) for u in batch_users
-                ]
-                batch_scores_gender = self._get_all_scores_batch(
-                    batch_users,
-                    batch_train_seqs,
-                    candidate_chunk_size,
-                    swap_gender=swapped_genders,
-                )
-                all_scores_gender.append(batch_scores_gender)
-                # Per-user age swap (7 groups)
-                all_scores_age.append(
-                    self._get_all_scores_batch(
-                        batch_users,
-                        batch_train_seqs,
-                        candidate_chunk_size,
-                        swap_age=[
-                            int(self.user_features[u - 1][1]) for _ in batch_users
-                        ],
-                    )
-                )
         all_scores = np.concatenate(all_scores, axis=0)
         metrics = Metrics(all_scores, true_items)
         results = {}
@@ -418,6 +384,8 @@ class Evaluator:
                         batch_train_seqs,
                         candidate_chunk_size,
                         swap_gender=batch_swapped_genders,
+                        swap_age=None,
+                        swap_occupation=None,
                     )
                     batch_gender_scores.append(batch_scores_gender)
                 all_scores_gender.append(np.concatenate(batch_gender_scores, axis=0))
@@ -449,7 +417,9 @@ class Evaluator:
                         batch_users,
                         batch_train_seqs,
                         candidate_chunk_size,
+                        swap_gender=None,
                         swap_age=batch_swapped_ages,
+                        swap_occupation=None,
                     )
                     batch_age_scores.append(batch_scores_age)
                 all_scores_age.append(np.concatenate(batch_age_scores, axis=0))
@@ -484,6 +454,8 @@ class Evaluator:
                         batch_users,
                         batch_train_seqs,
                         candidate_chunk_size,
+                        swap_gender=None,
+                        swap_age=None,
                         swap_occupation=batch_swapped_occs,
                     )
                     batch_occ_scores.append(batch_scores_occ)
@@ -522,41 +494,19 @@ class Evaluator:
             user_feats[:, 1] = torch.tensor(
                 swap_age, dtype=user_feats.dtype, device=self.device
             )
-        # Handle occupation swap (one-hot)
         if swap_occupation is not None:
-            num_occ = user_feats.shape[1] - 3  # [gender, age, zip_hash] + occ_onehot
+            num_occ = user_feats.shape[1] - 3
             for i, occ_idx in enumerate(swap_occupation):
                 user_feats[i, 3 : 3 + num_occ] = 0
                 user_feats[i, 3 + occ_idx] = 1
-        seqs = np.zeros((batch_size, maxlen), dtype=np.int32)
-        seq_feats = np.zeros(
-            (batch_size, maxlen, self.item_features.shape[1]), dtype=np.float32
-        )
-        seqcxts = np.zeros((batch_size, maxlen, self.model.cxt_size), dtype=np.float32)
-        for i, (train_seq, user) in enumerate(zip(train_seqs, users)):
-            mapped_train_seq = [
-                self.itemid2idx[x] for x in train_seq if x in self.itemid2idx
-            ]
-            if len(mapped_train_seq) > maxlen - 1:
-                mapped_train_seq = mapped_train_seq[-(maxlen - 1) :]
-            seqs[i, -(len(mapped_train_seq) + 1) : -1] = (
-                mapped_train_seq if len(mapped_train_seq) > 0 else []
-            )
-            if len(mapped_train_seq) > 0:
-                seq_feats[i, -(len(mapped_train_seq) + 1) : -1, :] = self.item_features[
-                    mapped_train_seq
-                ]
-            for idx, item in enumerate(seqs[i, -(len(mapped_train_seq) + 1) : -1]):
-                if item != 0:
-                    orig_item = train_seq[idx] if idx < len(train_seq) else 0
-                    seqcxts[i, -(len(mapped_train_seq) + 1) + idx, :] = (
-                        self.cxtdict.get(
-                            (user, orig_item), np.zeros(self.model.cxt_size)
-                        )
-                    )
-        seqs = torch.tensor(seqs, dtype=torch.long, device=self.device)
-        seq_feats = torch.tensor(seq_feats, dtype=torch.float32, device=self.device)
-        seqcxts = torch.tensor(seqcxts, dtype=torch.float32, device=self.device)
+        # Use _build_sequence_tensors for each user to ensure correct context alignment
+        seq_tensors = [
+            self._build_sequence_tensors(seq, user)
+            for seq, user in zip(train_seqs, users)
+        ]
+        seqs = torch.cat([t[0] for t in seq_tensors], dim=0)
+        seq_feats = torch.cat([t[1] for t in seq_tensors], dim=0)
+        seqcxts = torch.cat([t[2] for t in seq_tensors], dim=0)
         user_feats = user_feats.to(self.device)
         all_scores = []
         for chunk_start in range(0, num_candidates, candidate_chunk_size):
