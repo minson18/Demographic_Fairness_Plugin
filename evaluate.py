@@ -366,38 +366,32 @@ class Evaluator:
             results[f"mrr@{topk}"] = metrics.mrr_at_k(topk)
             results[f"hit@{topk}"] = metrics.hit_at_k(topk)
         if fairness_metrics:
-            num_repeats = 3
-            # Gender fairness: multiple random swaps
-            all_scores_gender = []
-            for repeat in tqdm(range(num_repeats), desc="Gender fairness repeats"):
-                swapped_genders = [1 - int(self.user_features[u - 1][0]) for u in users]
-                batch_gender_scores = []
-                for start in range(0, len(users), batch_size):
-                    end = min(start + batch_size, len(users))
-                    batch_users = users[start:end]
-                    batch_train_seqs = [user_train[u] for u in batch_users]
-                    batch_swapped_genders = [
-                        swapped_genders[i] for i in range(start, end)
-                    ]
-                    batch_scores_gender = self._get_all_scores_batch(
-                        batch_users,
-                        batch_train_seqs,
-                        candidate_chunk_size,
-                        swap_gender=batch_swapped_genders,
-                        swap_age=None,
-                        swap_occupation=None,
-                    )
-                    batch_gender_scores.append(batch_scores_gender)
-                all_scores_gender.append(np.concatenate(batch_gender_scores, axis=0))
-            results["distance_gender"] = metrics.distance_to(all_scores_gender, k)
-            # Delta NDCG for gender (average over repeats)
-            for topk in [1, 5, 10, 20]:
-                delta_ndcg_gender = np.mean(
-                    [
-                        metrics.delta_ndcg_at_k(all_scores_gender[repeat], topk)
-                        for repeat in range(num_repeats)
-                    ]
+            # Gender fairness: only one swap needed since gender is binary
+            swapped_genders = [1 - int(self.user_features[u - 1][0]) for u in users]
+            batch_gender_scores = []
+            for start in tqdm(
+                range(0, len(users), batch_size),
+                desc="Evaluating gender fairness",
+                unit="user",
+            ):
+                end = min(start + batch_size, len(users))
+                batch_users = users[start:end]
+                batch_train_seqs = [user_train[u] for u in batch_users]
+                batch_swapped_genders = [swapped_genders[i] for i in range(start, end)]
+                batch_scores_gender = self._get_all_scores_batch(
+                    batch_users,
+                    batch_train_seqs,
+                    candidate_chunk_size,
+                    swap_gender=batch_swapped_genders,
+                    swap_age=None,
+                    swap_occupation=None,
                 )
+                batch_gender_scores.append(batch_scores_gender)
+            all_scores_gender = [np.concatenate(batch_gender_scores, axis=0)]
+            results["distance_gender"] = metrics.distance_to(all_scores_gender, k)
+            # Delta NDCG for gender (no need to average, just use the single swap)
+            for topk in [1, 5, 10, 20]:
+                delta_ndcg_gender = metrics.delta_ndcg_at_k(all_scores_gender[0], topk)
                 results[f"delta_ndcg_gender@{topk}"] = delta_ndcg_gender
             # Age fairness: multiple random swaps
             all_scores_age = []
