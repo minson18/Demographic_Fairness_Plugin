@@ -178,16 +178,29 @@ def train():
             )
             print("Validation metrics (10% subset):")
             Evaluator.print_metrics_table(metrics)
-            # Save all validation metrics
-            metrics_path = os.path.join(save_dir, f"val_metrics.json")
-            with open(metrics_path, "w") as f:
-                json.dump(convert_to_native(metrics), f, indent=2)
             ndcg20 = metrics["ndcg@20"]
             if ndcg20 > best_ndcg20:
                 best_ndcg20 = ndcg20
                 torch.save(model.state_dict(), best_model_path)
                 print(f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}")
     print(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
+
+    # Load the best model before final validation evaluation
+    model.load_state_dict(torch.load(best_model_path, map_location=args.device))
+    model.eval()
+
+    # After training, evaluate on the full validation set for grid search selection
+    full_val_metrics = evaluator.evaluate(
+        user_train_split,
+        user_valid,  # full validation set
+        k=20,
+        batch_size=32,
+        candidate_chunk_size=200,
+        fairness_metrics=False,
+    )
+    metrics_path = os.path.join(save_dir, "val_metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump(convert_to_native(full_val_metrics), f, indent=2)
 
 
 if __name__ == "__main__":
