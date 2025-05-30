@@ -176,7 +176,7 @@ def train():
                 candidate_chunk_size=200,
                 fairness_metrics=False,
             )
-            print("Validation metrics (10% subset):")
+            print("Validation metrics (30% subset):")
             Evaluator.print_metrics_table(metrics)
             ndcg20 = metrics["ndcg@20"]
             if ndcg20 > best_ndcg20:
