@@ -5,37 +5,73 @@ import json
 import csv
 import sys
 from datetime import datetime
+import time
 
 
-def run_grid_search(param_grid, base_cmd, save_dir_prefix):
+def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=None):
+    # Read CUDA_VISIBLE_DEVICES from environment
+    cuda_env = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    if cuda_env:
+        gpu_list = [int(x) for x in cuda_env.split(",") if x.strip()]
+    else:
+        gpu_list = [0, 1, 2, 3]  # default
+    if num_gpus is None:
+        num_gpus = len(gpu_list)
+    results = []
+    procs = []
+    proc_infos = []
     keys, values = zip(*param_grid.items())
     combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
-    results = []
+    total_jobs = len(combinations)
+    completed_jobs = 0
     for i, params in enumerate(combinations):
+        gpu_id = gpu_list[i % num_gpus]
         save_dir = f"{save_dir_prefix}/grid_{i}"
         os.makedirs(save_dir, exist_ok=True)
         cmd = base_cmd + ["--save_dir", save_dir]
         for k, v in params.items():
             cmd += [f"--{k}", str(v)]
-        print(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        metrics_path = os.path.join(save_dir, "val_metrics.json")
-        all_metrics = {}
-        if os.path.exists(metrics_path):
-            with open(metrics_path, "r") as f:
-                all_metrics = json.load(f)
-            best_ndcg = all_metrics.get("ndcg@20", None)
-        else:
-            best_ndcg = None
-        results.append(
-            {
-                "params": params,
-                "ndcg@20": best_ndcg,
-                "all_metrics": all_metrics,
-                "save_dir": save_dir,
-            }
+        print(f"[Job {i+1}/{total_jobs}] Launching on GPU {gpu_id}: {params}")
+        env = os.environ.copy()
+        env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)  # Only expose one GPU per process
+        env["SELECTED_GPU_INDEX"] = str(gpu_id)  # for debugging, not used by torch
+        log_path = os.path.join(save_dir, "job.log")
+        log_file = open(log_path, "w")
+        proc = subprocess.Popen(
+            cmd, env=env, stdout=log_file, stderr=subprocess.STDOUT, text=True
         )
-        print(f"Params: {params}, Best NDCG@20: {best_ndcg}")
+        procs.append((proc, log_file))
+        proc_infos.append((i, params, save_dir, proc, log_file))
+        # If we've launched num_gpus jobs, wait for all to finish
+        if len(procs) == num_gpus or i == len(combinations) - 1:
+            for j, (idx, params, save_dir, proc, log_file) in enumerate(proc_infos):
+                proc.wait()
+                log_file.close()
+                metrics_path = os.path.join(save_dir, "val_metrics.json")
+                all_metrics = {}
+                if os.path.exists(metrics_path):
+                    with open(metrics_path, "r") as f:
+                        all_metrics = json.load(f)
+                    best_ndcg = all_metrics.get("ndcg@20", None)
+                else:
+                    best_ndcg = None
+                results.append(
+                    {
+                        "params": params,
+                        "ndcg@20": best_ndcg,
+                        "all_metrics": all_metrics,
+                        "save_dir": save_dir,
+                    }
+                )
+                print(
+                    f"[Job {idx+1}/{total_jobs}] Finished. Params: {params}, Best NDCG@20: {best_ndcg}"
+                )
+            completed_jobs += len(proc_infos)
+            print(f"Progress: {completed_jobs}/{total_jobs} jobs completed.")
+            procs = []
+            proc_infos = []
+            # Optional: short sleep to avoid race conditions
+            time.sleep(2)
     return results
 
 
@@ -109,8 +145,10 @@ def main():
     save_dir_prefix = unique_dir
     test_py_path = "test.py"
     dataset = "ml-1m"
-    # 1. Run grid search
-    results = run_grid_search(param_grid, base_cmd, save_dir_prefix)
+    # 1. Run grid search (multi-GPU)
+    results = run_grid_search_multi_gpu(
+        param_grid, base_cmd, save_dir_prefix, num_gpus=4
+    )
     # 2. Save all results
     save_results(results, param_grid, unique_dir)
     # 3. Find best params
