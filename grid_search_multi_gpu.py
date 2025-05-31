@@ -99,8 +99,16 @@ def retrain_and_test_best(
     retrain_cmd = base_cmd + ["--save_dir", retrain_dir]
     for k, v in best_params.items():
         retrain_cmd += [f"--{k}", str(v)]
+    # Save best params as JSON
+    best_params_path = os.path.join(retrain_dir, "best_params.json")
+    with open(best_params_path, "w") as f:
+        json.dump(best_params, f, indent=2)
     print(f"Retraining best model: {' '.join(retrain_cmd)}")
-    subprocess.run(retrain_cmd)
+    retrain_log_path = os.path.join(retrain_dir, "job.log")
+    with open(retrain_log_path, "w") as retrain_log_file:
+        subprocess.run(
+            retrain_cmd, stdout=retrain_log_file, stderr=subprocess.STDOUT, text=True
+        )
     # Test the retrained model
     test_cmd = [
         sys.executable,
@@ -110,8 +118,15 @@ def retrain_and_test_best(
         "--dataset",
         dataset,
     ]
+    # Pass best params to test script as well
+    for k, v in best_params.items():
+        test_cmd += [f"--{k}", str(v)]
     print(f"Testing best model: {' '.join(test_cmd)}")
-    subprocess.run(test_cmd)
+    test_log_path = os.path.join(retrain_dir, "test.log")
+    with open(test_log_path, "w") as test_log_file:
+        subprocess.run(
+            test_cmd, stdout=test_log_file, stderr=subprocess.STDOUT, text=True
+        )
 
 
 def main():
@@ -147,7 +162,7 @@ def main():
     dataset = "ml-1m"
     # 1. Run grid search (multi-GPU)
     results = run_grid_search_multi_gpu(
-        param_grid, base_cmd, save_dir_prefix, num_gpus=4
+        param_grid, base_cmd, save_dir_prefix, num_gpus=2
     )
     # 2. Save all results
     save_results(results, param_grid, unique_dir)
