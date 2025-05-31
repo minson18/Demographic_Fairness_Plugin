@@ -84,7 +84,7 @@ def train():
     parser.add_argument(
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
-    parser.add_argument("--save_dir", type=str, default=None)
+    parser.add_argument("--model_dir", type=str, default=None)
     args, _ = parser.parse_known_args()
     # Log training parameters
     print("Training parameters:")
@@ -101,7 +101,7 @@ def train():
     print(f"  Context size: {args.cxt_size}")
     print(f"  Use residual: {args.use_res}")
     print(f"  Device: {args.device}")
-    print(f"  Save directory: {args.save_dir}")
+    print(f"  Save directory: {args.model_dir}")
     print()
     (
         user_train,
@@ -153,13 +153,13 @@ def train():
     user_valid_subset = evaluator.sample_user_subset(user_valid, percent=0.3)
 
     # Set up model save directory
-    save_dir = (
-        args.save_dir
-        if args.save_dir is not None
+    model_dir = (
+        args.model_dir
+        if args.model_dir is not None
         else os.path.join("saved_models", args.dataset)
     )
-    os.makedirs(save_dir, exist_ok=True)
-    best_model_path = os.path.join(save_dir, "best_model.pth")
+    os.makedirs(model_dir, exist_ok=True)
+    best_model_path = os.path.join(model_dir, "best_model.pth")
 
     best_ndcg20 = -1
     for epoch in range(1, args.num_epochs + 1):
@@ -198,7 +198,7 @@ def train():
         candidate_chunk_size=200,
         fairness_metrics=False,
     )
-    metrics_path = os.path.join(save_dir, "val_metrics.json")
+    metrics_path = os.path.join(model_dir, "val_metrics.json")
     with open(metrics_path, "w") as f:
         json.dump(convert_to_native(full_val_metrics), f, indent=2)
 
