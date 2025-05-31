@@ -147,24 +147,33 @@ class Evaluator:
         Uses the model to score all candidate items in a single batch for efficiency.
         Only the last position in the sequence/context is changed per candidate item.
         """
-        user_idx = user - 1  # MovieLens user IDs are 1-based
-        user_feat = self.user_features_tensor[user_idx].clone()
+        self.model.eval()
+        device = self.device
+        # Build user features tensor with optional attribute swap
+        user_feat = torch.tensor(
+            self.user_features[user - 1], dtype=torch.float32, device=device
+        ).unsqueeze(0)
+        # Apply swaps if specified
         if swap_gender is not None:
-            user_feat[0] = swap_gender
+            user_feat[:, 0] = swap_gender
         if swap_age is not None:
-            user_feat[1] = swap_age
+            user_feat[:, 1] = swap_age
         if swap_occupation is not None:
-            num_occ = user_feat.shape[0] - 3
-            user_feat[3 : 3 + num_occ] = 0
-            user_feat[3 + swap_occupation] = 1
-        user_feat = user_feat.unsqueeze(0)
+            # For occupation, it's one-hot starting at index 3
+            #num_occ = user_feat.shape[0] - 3
+            num_occ = user_feat.shape[1] - 3
+            user_feat[:, 3 : 3 + num_occ] = 0  # Reset current occupation
+            user_feat[:, 3 + swap_occupation] = 1  # Set new occupation
+        # Build sequence tensors
         seq, seq_feat, seqcxt = self._build_sequence_tensors(train_seq, user)
         num_candidates = len(self.candidate_items)
+        # Create tensors for all candidates
         pos = seq.repeat(num_candidates, 1)
         pos_feat = seq_feat.repeat(num_candidates, 1, 1)
         poscxt = seqcxt.repeat(num_candidates, 1, 1)
+        # Replace the last position with each candidate
         pos[:, -1] = torch.tensor(
-            self.candidate_indices, dtype=torch.long, device=self.device
+            self.candidate_indices, dtype=torch.long, device=device
         )
         pos_feat[:, -1, :] = self.candidate_item_features
         poscxt[:, -1, :] = self._build_candidate_context(user)
@@ -177,7 +186,7 @@ class Evaluator:
         neg_feat = pos_feat
         negcxt = poscxt
         with torch.no_grad():
-            pos_logits, _ = self.model(
+            pos_logits, _, _ = self.model(
                 user_feat_batch,
                 seq_batch,
                 seq_feat_batch,
@@ -311,7 +320,7 @@ class Evaluator:
             neg_feat = pos_feat
             neg_cxt = poscxt
             with torch.no_grad():
-                pos_logits, _ = self.model(
+                pos_logits, _, _ = self.model(
                     user_feat_batch,
                     seq_batch,
                     seq_feat_batch,
@@ -560,7 +569,7 @@ class Evaluator:
             neg_feat = pos_feat
             neg_cxt = poscxt
             with torch.no_grad():
-                pos_logits, _ = self.model(
+                pos_logits, _, _ = self.model(
                     user_feat_batch,
                     seq_batch,
                     seq_feat_batch,

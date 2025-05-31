@@ -22,15 +22,18 @@ def bce_loss(pos_logits, neg_logits, mask):
     return loss.sum() / mask.sum()
 
 
-def train_one_epoch(model, dataloader, optimizer, device):
+def train_one_epoch(model, dataloader, optimizer, device, fairness_lambda=0.0):
     model.train()
     total_loss = 0
+    task_loss_sum = 0
+    fairness_loss_sum = 0
+    
     for batch in tqdm(dataloader, desc="Train", leave=False):
         for k in batch:
             if isinstance(batch[k], torch.Tensor):
                 batch[k] = batch[k].to(device)
         optimizer.zero_grad()
-        pos_logits, neg_logits = model(
+        pos_logits, neg_logits, user_repr = model(
             batch["user_feat"],
             batch["seq"],
             batch["seq_feat"],
@@ -43,11 +46,27 @@ def train_one_epoch(model, dataloader, optimizer, device):
             batch["negcxt"],
         )
         mask = (batch["seq"] != 0).float()
-        loss = bce_loss(pos_logits, neg_logits, mask)
+        task_loss = bce_loss(pos_logits, neg_logits, mask)
+        
+        # Add fairness regularization if enabled
+        fairness_loss = 0.0
+        if fairness_lambda > 0:
+            fairness_loss = model.compute_fairness_loss(user_repr, batch["user_feat"])
+            
+        # Combined loss
+        loss = task_loss + fairness_loss
+        
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-    return total_loss / len(dataloader)
+        task_loss_sum += task_loss.item()
+        fairness_loss_sum += fairness_loss.item() if isinstance(fairness_loss, torch.Tensor) else fairness_loss
+        
+    avg_loss = total_loss / len(dataloader)
+    avg_task_loss = task_loss_sum / len(dataloader)
+    avg_fairness_loss = fairness_loss_sum / len(dataloader)
+    
+    return avg_loss, avg_task_loss, avg_fairness_loss
 
 
 def load_split(split_name, out_dir):
@@ -85,6 +104,14 @@ def train():
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
     parser.add_argument("--save_dir", type=str, default=None)
+    
+    # CUFRL fairness parameters
+    parser.add_argument("--use_fairness", action="store_true", help="Enable universal fairness")
+    parser.add_argument("--fairness_lambda", type=float, default=0.0, 
+                       help="Weight for fairness loss (0 to disable, >0 to enable)")
+    parser.add_argument("--sensitive_indices", nargs="+", type=int, default=[0, 1],
+                       help="Indices of sensitive attributes in user features")
+    
     args, _ = parser.parse_known_args()
     # Log training parameters
     print("Training parameters:")
@@ -102,6 +129,9 @@ def train():
     print(f"  Use residual: {args.use_res}")
     print(f"  Device: {args.device}")
     print(f"  Save directory: {args.save_dir}")
+    print(f"  Fairness enabled: {args.use_fairness}")
+    print(f"  Fairness lambda: {args.fairness_lambda}")
+    print(f"  Sensitive attribute indices: {args.sensitive_indices}")
     print()
     (
         user_train,
@@ -163,8 +193,11 @@ def train():
 
     best_ndcg20 = -1
     for epoch in range(1, args.num_epochs + 1):
-        loss = train_one_epoch(model, dataloader, optimizer, args.device)
-        print(f"Epoch {epoch}, Loss: {loss:.4f}")
+        loss, task_loss, fairness_loss = train_one_epoch(
+            model, dataloader, optimizer, args.device, args.fairness_lambda
+        )
+        print(f"Epoch {epoch}, Total Loss: {loss:.4f}, Task Loss: {task_loss:.4f}, Fairness Loss: {fairness_loss:.4f}")
+        
         # Evaluate every 10 epochs
         if epoch % 10 == 0:
             torch.cuda.empty_cache()
@@ -174,16 +207,44 @@ def train():
                 k=20,
                 batch_size=32,
                 candidate_chunk_size=200,
-                fairness_metrics=False,
+                fairness_metrics=True,  # Always evaluate fairness metrics
             )
             print("Validation metrics (30% subset):")
             Evaluator.print_metrics_table(metrics)
             ndcg20 = metrics["ndcg@20"]
-            if ndcg20 > best_ndcg20:
-                best_ndcg20 = ndcg20
-                torch.save(model.state_dict(), best_model_path)
-                print(f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}")
-    print(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
+            
+            # Optionally incorporate fairness into model selection criteria
+            if args.use_fairness and args.fairness_lambda > 0:
+                # Use a combined metric that considers both accuracy and fairness
+                fairness_score = 0
+                if "distance_gender" in metrics:
+                    fairness_score += metrics["distance_gender"]
+                if "distance_age" in metrics:
+                    fairness_score += metrics["distance_age"]
+                if "distance_occupation" in metrics:
+                    fairness_score += metrics["distance_occupation"]
+                
+                # Normalize fairness score (lower is better)
+                fairness_score = fairness_score / 3 if fairness_score > 0 else 0
+                
+                # Combined score: maximize NDCG, minimize fairness disparity
+                combined_score = ndcg20 - args.fairness_lambda * fairness_score
+                
+                if combined_score > best_ndcg20:
+                    best_ndcg20 = combined_score
+                    torch.save(model.state_dict(), best_model_path)
+                    print(f"Best model saved at epoch {epoch} with combined score: {combined_score:.4f} (NDCG@20: {ndcg20:.4f}, Fairness: {fairness_score:.4f})")
+            else:
+                # Traditional model selection based on NDCG only
+                if ndcg20 > best_ndcg20:
+                    best_ndcg20 = ndcg20
+                    torch.save(model.state_dict(), best_model_path)
+                    print(f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}")
+    
+    if args.use_fairness:
+        print(f"Best Combined Score: {best_ndcg20:.4f}")
+    else:
+        print(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
 
     # Load the best model before final validation evaluation
     model.load_state_dict(torch.load(best_model_path, map_location=args.device))
@@ -196,7 +257,7 @@ def train():
         k=20,
         batch_size=32,
         candidate_chunk_size=200,
-        fairness_metrics=False,
+        fairness_metrics=True,  # Always evaluate fairness for final metrics
     )
     metrics_path = os.path.join(save_dir, "val_metrics.json")
     with open(metrics_path, "w") as f:
