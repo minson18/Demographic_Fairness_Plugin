@@ -7,6 +7,13 @@ import sys
 from datetime import datetime
 import time
 
+"""
+Must set following environment variables to run grid search:
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
+"""
+
 
 def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=None):
     # Read CUDA_VISIBLE_DEVICES from environment
@@ -129,7 +136,7 @@ def retrain_and_test_best(
         )
 
 
-def main():
+def main(num_gpus=4):
     # Create a unique timestamped directory for this grid search
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_dir = f"saved_models/gridsearch_{timestamp}"
@@ -162,7 +169,7 @@ def main():
     dataset = "ml-1m"
     # 1. Run grid search (multi-GPU)
     results = run_grid_search_multi_gpu(
-        param_grid, base_cmd, save_dir_prefix, num_gpus=2
+        param_grid, base_cmd, save_dir_prefix, num_gpus=num_gpus
     )
     # 2. Save all results
     save_results(results, param_grid, unique_dir)
@@ -177,4 +184,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(num_gpus=4)
