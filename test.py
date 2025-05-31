@@ -3,7 +3,7 @@ import pickle
 import os
 from dataset import load_dataset
 from model import CARCA
-from evaluate import Evaluator, load_best_model
+from evaluate import Evaluator
 import argparse
 import json
 from train import convert_to_native

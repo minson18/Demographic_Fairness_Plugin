@@ -35,7 +35,7 @@ def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=No
         gpu_id = gpu_list[i % num_gpus]
         save_dir = f"{save_dir_prefix}/grid_{i}"
         os.makedirs(save_dir, exist_ok=True)
-        cmd = base_cmd + ["--save_dir", save_dir]
+        cmd = base_cmd + ["--model_dir", save_dir]
         for k, v in params.items():
             cmd += [f"--{k}", str(v)]
         print(f"[Job {i+1}/{total_jobs}] Launching on GPU {gpu_id}: {params}")
@@ -103,7 +103,7 @@ def retrain_and_test_best(
 ):
     retrain_dir = os.path.join(save_dir_prefix, "best_retrain")
     os.makedirs(retrain_dir, exist_ok=True)
-    retrain_cmd = base_cmd + ["--save_dir", retrain_dir]
+    retrain_cmd = base_cmd + ["--model_dir", retrain_dir]
     for k, v in best_params.items():
         retrain_cmd += [f"--{k}", str(v)]
     # Save best params as JSON
