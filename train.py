@@ -156,6 +156,7 @@ def train():
         item_features,
         itemid2idx=itemid2idx,
     )
+    # print(user_features.shape, item_features.shape)
     model = CARCA(
         usernum,
         itemnum,

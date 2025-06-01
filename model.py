@@ -81,25 +81,26 @@ class CARCA(nn.Module):
         )
         
         # CUFRL additions for universal fairness
-        # Default sensitive attribute indices: gender (0), age (1), occupation (3+)
         self.fairness_lambda = getattr(args, 'fairness_lambda', 0.0)
         self.sens_indices = getattr(args, 'sensitive_indices', [0, 1])
         
-        # Discriminator networks for each sensitive attribute
+        # Dynamically create discriminator networks only for specified sensitive attributes
+        self.discriminators = nn.ModuleDict()
         if hasattr(args, 'use_fairness') and args.use_fairness:
-            self.gender_discriminator = SensitiveAttributeDiscriminator(
-                self.hidden_units, 1)  # binary for gender
-            self.age_discriminator = SensitiveAttributeDiscriminator(
-                self.hidden_units, 7)  # 7 age groups
-            
-            # For occupation, determine number of categories from user_feature_dim
-            # Assuming gender, age, zip take 3 features, rest are one-hot occupation
-            num_occupations = user_feature_dim - 3
-            if num_occupations > 0:
-                self.occ_discriminator = SensitiveAttributeDiscriminator(
-                    self.hidden_units, num_occupations)
-            else:
-                self.occ_discriminator = None
+            for idx in self.sens_indices:
+                if idx == 0:  # Gender (binary)
+                    self.discriminators[f'discriminator_{idx}'] = SensitiveAttributeDiscriminator(
+                        self.hidden_units, 1)
+                elif idx == 1:  # Age (7 groups) 
+                    self.discriminators[f'discriminator_{idx}'] = SensitiveAttributeDiscriminator(
+                        self.hidden_units, 7)
+                elif idx >= 3:  # Occupation (one-hot encoded)
+                    # For occupation, determine number of categories from user_feature_dim
+                    # Assuming gender, age, zip take 3 features, rest are one-hot occupation
+                    num_occupations = user_feature_dim - 3
+                    if num_occupations > 0:
+                        self.discriminators[f'discriminator_{idx}'] = SensitiveAttributeDiscriminator(
+                            self.hidden_units, num_occupations)
 
     def forward(
         self,
@@ -169,31 +170,38 @@ class CARCA(nn.Module):
     
     def compute_fairness_loss(self, user_repr, user_feat):
         """
-        Calculate fairness loss using mutual information estimators via discriminators.
+        Calculate fairness loss using mutual information estimators via discriminators
+        only for the specified sensitive attributes.
         """
-        if not hasattr(self, 'gender_discriminator'):
+        if len(self.discriminators) == 0:
             return 0.0
             
-        # Extract sensitive attributes from user features
-        gender = user_feat[:, 0:1]
-        age = user_feat[:, 1].long()  # Assuming age is categorical
+        total_fairness_loss = 0.0
         
-        # Compute losses for each sensitive attribute
-        gender_pred = self.gender_discriminator(user_repr)
-        gender_loss = F.binary_cross_entropy_with_logits(gender_pred, gender)
-        
-        age_pred = self.age_discriminator(user_repr)
-        age_loss = F.cross_entropy(age_pred, age)
-        
-        # Occupation if available
-        occ_loss = 0.0
-        if self.occ_discriminator is not None:
-            # Occupations are one-hot, extract from user features (index 3+)
-            occ_indices = torch.argmax(user_feat[:, 3:], dim=1)
-            occ_pred = self.occ_discriminator(user_repr)
-            occ_loss = F.cross_entropy(occ_pred, occ_indices)
-        
-        # Total fairness loss with equal weighting (can be adjusted)
-        total_fairness_loss = gender_loss + age_loss + occ_loss
+        for idx in self.sens_indices:
+            discriminator_key = f'discriminator_{idx}'
+            if discriminator_key not in self.discriminators:
+                continue
+                
+            discriminator = self.discriminators[discriminator_key]
+            
+            if idx == 0:  # Gender (binary)
+                gender = user_feat[:, 0:1]
+                gender_pred = discriminator(user_repr)
+                loss = F.binary_cross_entropy_with_logits(gender_pred, gender)
+                total_fairness_loss += loss
+                
+            elif idx == 1:  # Age (categorical)
+                age = user_feat[:, 1].long()
+                age_pred = discriminator(user_repr)
+                loss = F.cross_entropy(age_pred, age)
+                total_fairness_loss += loss
+                
+            elif idx >= 3:  # Occupation (one-hot)
+                # Occupations are one-hot, extract from user features (index 3+)
+                occ_indices = torch.argmax(user_feat[:, 3:], dim=1)
+                occ_pred = discriminator(user_repr)
+                loss = F.cross_entropy(occ_pred, occ_indices)
+                total_fairness_loss += loss
         
         return self.fairness_lambda * total_fairness_loss
