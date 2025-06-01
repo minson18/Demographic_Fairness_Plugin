@@ -7,6 +7,13 @@ import sys
 from datetime import datetime
 import time
 
+"""
+Must set following environment variables to run grid search:
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export OPENBLAS_NUM_THREADS=16
+"""
+
 
 def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=None):
     # Read CUDA_VISIBLE_DEVICES from environment
@@ -28,7 +35,7 @@ def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=No
         gpu_id = gpu_list[i % num_gpus]
         save_dir = f"{save_dir_prefix}/grid_{i}"
         os.makedirs(save_dir, exist_ok=True)
-        cmd = base_cmd + ["--save_dir", save_dir]
+        cmd = base_cmd + ["--model_dir", save_dir]
         for k, v in params.items():
             cmd += [f"--{k}", str(v)]
         print(f"[Job {i+1}/{total_jobs}] Launching on GPU {gpu_id}: {params}")
@@ -96,11 +103,19 @@ def retrain_and_test_best(
 ):
     retrain_dir = os.path.join(save_dir_prefix, "best_retrain")
     os.makedirs(retrain_dir, exist_ok=True)
-    retrain_cmd = base_cmd + ["--save_dir", retrain_dir]
+    retrain_cmd = base_cmd + ["--model_dir", retrain_dir]
     for k, v in best_params.items():
         retrain_cmd += [f"--{k}", str(v)]
+    # Save best params as JSON
+    best_params_path = os.path.join(retrain_dir, "best_params.json")
+    with open(best_params_path, "w") as f:
+        json.dump(best_params, f, indent=2)
     print(f"Retraining best model: {' '.join(retrain_cmd)}")
-    subprocess.run(retrain_cmd)
+    retrain_log_path = os.path.join(retrain_dir, "job.log")
+    with open(retrain_log_path, "w") as retrain_log_file:
+        subprocess.run(
+            retrain_cmd, stdout=retrain_log_file, stderr=subprocess.STDOUT, text=True
+        )
     # Test the retrained model
     test_cmd = [
         sys.executable,
@@ -110,11 +125,18 @@ def retrain_and_test_best(
         "--dataset",
         dataset,
     ]
+    # Pass best params to test script as well
+    for k, v in best_params.items():
+        test_cmd += [f"--{k}", str(v)]
     print(f"Testing best model: {' '.join(test_cmd)}")
-    subprocess.run(test_cmd)
+    test_log_path = os.path.join(retrain_dir, "test.log")
+    with open(test_log_path, "w") as test_log_file:
+        subprocess.run(
+            test_cmd, stdout=test_log_file, stderr=subprocess.STDOUT, text=True
+        )
 
 
-def main():
+def main(num_gpus=4):
     # Create a unique timestamped directory for this grid search
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     unique_dir = f"saved_models/gridsearch_{timestamp}"
@@ -147,7 +169,7 @@ def main():
     dataset = "ml-1m"
     # 1. Run grid search (multi-GPU)
     results = run_grid_search_multi_gpu(
-        param_grid, base_cmd, save_dir_prefix, num_gpus=4
+        param_grid, base_cmd, save_dir_prefix, num_gpus=num_gpus
     )
     # 2. Save all results
     save_results(results, param_grid, unique_dir)
@@ -162,4 +184,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(num_gpus=4)

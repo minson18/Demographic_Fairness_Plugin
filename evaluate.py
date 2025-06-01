@@ -53,28 +53,6 @@ class Evaluator:
             3  # Number of times to repeat the evaluation in for fairness swap
         )
 
-    @staticmethod
-    def split_user_sequences(user_train: Dict) -> tuple:
-        """
-        Split user_train into train/valid/test dicts per user.
-        Returns: user_train_split, user_valid, user_test
-        """
-        user_train_split = {}
-        user_valid = {}
-        user_test = {}
-        for user, seq in user_train.items():
-            if len(seq) >= 3:
-                user_train_split[user] = seq[:-2]
-                user_valid[user] = seq[-2]
-                user_test[user] = seq[-1]
-            elif len(seq) == 2:
-                user_train_split[user] = [seq[0]]
-                user_valid[user] = seq[1]
-                user_test[user] = None
-            else:
-                continue
-        return user_train_split, user_valid, user_test
-
     def _build_sequence_tensors(self, train_seq: List[int], user: int) -> tuple:
         """
         Build sequence, feature, and context tensors for a user's history.
@@ -133,76 +111,6 @@ class Evaluator:
         self.candidate_contexts_cache[user] = tensor_cxts
         return tensor_cxts
 
-    def get_top_k(
-        self,
-        user: int,
-        train_seq: List[int],
-        k: int = 20,
-        swap_gender: Optional[int] = None,
-        swap_age: Optional[int] = None,
-        swap_occupation: Optional[int] = None,  # Added occupation swap
-    ) -> List[int]:
-        """
-        Generate top-k recommendations for a user, optionally swapping gender/age/occupation features.
-        Uses the model to score all candidate items in a single batch for efficiency.
-        Only the last position in the sequence/context is changed per candidate item.
-        """
-        self.model.eval()
-        device = self.device
-        # Build user features tensor with optional attribute swap
-        user_feat = torch.tensor(
-            self.user_features[user - 1], dtype=torch.float32, device=device
-        ).unsqueeze(0)
-        # Apply swaps if specified
-        if swap_gender is not None:
-            user_feat[:, 0] = swap_gender
-        if swap_age is not None:
-            user_feat[:, 1] = swap_age
-        if swap_occupation is not None:
-            # For occupation, it's one-hot starting at index 3
-            #num_occ = user_feat.shape[0] - 3
-            num_occ = user_feat.shape[1] - 3
-            user_feat[:, 3 : 3 + num_occ] = 0  # Reset current occupation
-            user_feat[:, 3 + swap_occupation] = 1  # Set new occupation
-        # Build sequence tensors
-        seq, seq_feat, seqcxt = self._build_sequence_tensors(train_seq, user)
-        num_candidates = len(self.candidate_items)
-        # Create tensors for all candidates
-        pos = seq.repeat(num_candidates, 1)
-        pos_feat = seq_feat.repeat(num_candidates, 1, 1)
-        poscxt = seqcxt.repeat(num_candidates, 1, 1)
-        # Replace the last position with each candidate
-        pos[:, -1] = torch.tensor(
-            self.candidate_indices, dtype=torch.long, device=device
-        )
-        pos_feat[:, -1, :] = self.candidate_item_features
-        poscxt[:, -1, :] = self._build_candidate_context(user)
-        user_feat_batch = user_feat.repeat(num_candidates, 1)
-        # Reuse seq, seq_feat, seqcxt for both history and pos
-        seq_batch = pos
-        seq_feat_batch = pos_feat
-        seqcxt_batch = poscxt
-        neg = pos
-        neg_feat = pos_feat
-        negcxt = poscxt
-        with torch.no_grad():
-            pos_logits, _, _ = self.model(
-                user_feat_batch,
-                seq_batch,
-                seq_feat_batch,
-                seqcxt_batch,
-                pos,
-                pos_feat,
-                poscxt,
-                neg,
-                neg_feat,
-                negcxt,
-            )
-            scores = pos_logits[:, -1].cpu().numpy()
-        topk_idx = np.argsort(scores)[-k:][::-1]
-        topk_items = [self.candidate_items[i] for i in topk_idx]
-        return topk_items
-
     def build_batch_candidate_context(self, users, chunk_items):
         """
         Efficiently build context tensor for a batch of users and a chunk of items.
@@ -226,118 +134,6 @@ class Evaluator:
             batch_size, chunk_size, cxt_size
         )
         return torch.tensor(cxts, dtype=torch.float32, device=self.device)
-
-    def get_top_k_batch(
-        self,
-        users: List[int],
-        train_seqs: List[List[int]],
-        k: int = 20,
-        swap_gender: Optional[List[int]] = None,
-        swap_age: Optional[List[int]] = None,
-        swap_occupation: Optional[List[int]] = None,
-        candidate_chunk_size: int = 500,
-    ) -> List[List[int]]:
-        batch_size = len(users)
-        num_candidates = len(self.candidate_items)
-        maxlen = self.model.maxlen
-
-        # User features
-        user_indices = [u - 1 for u in users]
-        user_feats = self.user_features_tensor[user_indices].clone()
-        if swap_gender is not None:
-            user_feats[:, 0] = torch.tensor(
-                swap_gender, dtype=user_feats.dtype, device=self.device
-            )
-        if swap_age is not None:
-            user_feats[:, 1] = torch.tensor(
-                swap_age, dtype=user_feats.dtype, device=self.device
-            )
-        if swap_occupation is not None:
-            num_occ = user_feats.shape[1] - 3
-            for i, occ_idx in enumerate(swap_occupation):
-                user_feats[i, 3 : 3 + num_occ] = 0
-                user_feats[i, 3 + occ_idx] = 1
-
-        # Use _build_sequence_tensors for each user to ensure correct context alignment
-        seq_tensors = [
-            self._build_sequence_tensors(seq, user)
-            for seq, user in zip(train_seqs, users)
-        ]
-        seqs = torch.cat([t[0] for t in seq_tensors], dim=0)
-        seq_feats = torch.cat([t[1] for t in seq_tensors], dim=0)
-        seqcxts = torch.cat([t[2] for t in seq_tensors], dim=0)
-
-        user_feats = user_feats.to(self.device)
-        all_scores = []
-        for chunk_start in range(0, num_candidates, candidate_chunk_size):
-            chunk_end = min(chunk_start + candidate_chunk_size, num_candidates)
-            chunk_indices = self.candidate_indices[chunk_start:chunk_end]
-            chunk_items = self.candidate_items[chunk_start:chunk_end]
-            chunk_item_features = self.candidate_item_features[chunk_start:chunk_end]
-            candidate_contexts = self.build_batch_candidate_context(users, chunk_items)
-            chunk_size = chunk_end - chunk_start
-            pos = seqs.unsqueeze(1).repeat(1, chunk_size, 1).reshape(-1, maxlen)
-            pos_feat = (
-                seq_feats.unsqueeze(1)
-                .repeat(1, chunk_size, 1, 1)
-                .reshape(-1, maxlen, self.item_features.shape[1])
-            )
-            poscxt = (
-                seqcxts.unsqueeze(1)
-                .repeat(1, chunk_size, 1, 1)
-                .reshape(-1, maxlen, self.model.cxt_size)
-            )
-            candidate_indices_tensor = torch.tensor(
-                chunk_indices, dtype=torch.long, device=self.device
-            )
-            for i in range(batch_size):
-                pos[i * chunk_size : (i + 1) * chunk_size, -1] = (
-                    candidate_indices_tensor
-                )
-                pos_feat[i * chunk_size : (i + 1) * chunk_size, -1, :] = (
-                    chunk_item_features
-                )
-                poscxt[i * chunk_size : (i + 1) * chunk_size, -1, :] = (
-                    candidate_contexts[i]
-                )
-            user_feat_batch = (
-                user_feats.unsqueeze(1)
-                .repeat(1, chunk_size, 1)
-                .reshape(-1, user_feats.shape[1])
-            )
-            seq_batch = seqs.unsqueeze(1).repeat(1, chunk_size, 1).reshape(-1, maxlen)
-            seq_feat_batch = (
-                seq_feats.unsqueeze(1)
-                .repeat(1, chunk_size, 1, 1)
-                .reshape(-1, maxlen, self.item_features.shape[1])
-            )
-            seqcxt_batch = (
-                seqcxts.unsqueeze(1)
-                .repeat(1, chunk_size, 1, 1)
-                .reshape(-1, maxlen, self.model.cxt_size)
-            )
-            neg = pos
-            neg_feat = pos_feat
-            neg_cxt = poscxt
-            with torch.no_grad():
-                pos_logits, _, _ = self.model(
-                    user_feat_batch,
-                    seq_batch,
-                    seq_feat_batch,
-                    seqcxt_batch,
-                    pos,
-                    pos_feat,
-                    poscxt,
-                    neg,
-                    neg_feat,
-                    neg_cxt,
-                )
-                scores = pos_logits[:, -1].cpu().numpy().reshape(batch_size, chunk_size)
-            all_scores.append(scores)
-        all_scores = np.concatenate(all_scores, axis=1)
-        topk_idx = np.argsort(all_scores, axis=1)[:, -k:][:, ::-1]
-        topk_items = [[self.candidate_items[i] for i in row] for row in topk_idx]
-        return topk_items
 
     def evaluate(
         self,
@@ -638,11 +434,3 @@ class Evaluator:
                     f"  Delta NDCG (occupation)@{k}: {metrics[f'delta_ndcg_occupation@{k}']:.4f}",
                     flush=True,
                 )
-
-
-# Example usage for test.py:
-def load_best_model(model_class, model_path, *args, **kwargs):
-    model = model_class(*args, **kwargs)
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-    return model

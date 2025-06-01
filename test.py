@@ -3,9 +3,10 @@ import pickle
 import os
 from dataset import load_dataset
 from model import CARCA
-from evaluate import Evaluator, load_best_model
+from evaluate import Evaluator
 import argparse
 import json
+from train import convert_to_native
 
 
 def load_split(split_name, out_dir):
@@ -132,7 +133,7 @@ def test():
     if args.model_dir is not None:
         save_path = os.path.join(args.model_dir, "test_metrics.json")
         with open(save_path, "w") as f:
-            json.dump(metrics, f, indent=2)
+            json.dump(convert_to_native(metrics), f, indent=2)  # Convert before dumping
         print(f"[INFO] Test metrics saved to {save_path}")
     print("[INFO] Evaluation complete.")
 
