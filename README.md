@@ -34,6 +34,13 @@ pip install -r requirements.txt
 
 ## Training, Testing, and Experiment Management
 
+The training loss is a weighted sum of three components: BCE Loss, Quantile Loss, and Ranking Quantile Loss. You can control the weights of quantile and ranking quantile loss using the `--alpha` and `--beta` arguments. The loss ratio is `1-alpha-beta : alpha : beta`.
+
+**Example:**
+```bash
+python main.py --mode train --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20 --alpha 0.05 --beta 0.2
+```
+
 ### **Recommended: Use `main.py` as a Controller**
 
 `main.py` provides a unified interface to run training, testing, or both:
@@ -64,14 +71,6 @@ All additional arguments are passed to the respective train or test scripts.
   python test.py --dataset ml-1m --maxlen 100 --model_dir saved_models/ml-1m
   ```
   - You can also use `--model_path` to specify a direct path to a model file.
-
-### **Apply Quantile Loss**
-
-- **Run with Quantile Loss**
-  ```bash
-  python train_quantile_2.py --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20 --alpha 0.05 --beta 0.2
-  ```
-- Total of three loss functions are used: BCE Loss, Quantile Loss, and Ranking Quantile Loss(For balancing and better performance in metrics). The ratio of the three loss is 1-alpha-beta:alpha:beta, where alpha and beta are params.
 
 ### **Grid Search (Hyperparameter Tuning)**
 
