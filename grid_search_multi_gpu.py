@@ -150,6 +150,7 @@ def main(num_gpus=4):
         "batch_size": [64, 128, 256],
         "maxlen": [100],
         "num_heads": [1],
+        "fairness_lambda": [0.1, 0.3],
     }
     base_cmd = [
         sys.executable,
@@ -163,6 +164,11 @@ def main(num_gpus=4):
         "50",
         "--device",
         "cuda",
+        "--use_fairness",
+        "--sensitive_indices",
+        "0",
+        "1",
+        "3",
     ]
     save_dir_prefix = unique_dir
     test_py_path = "test.py"
