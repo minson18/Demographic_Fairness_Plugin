@@ -103,10 +103,12 @@ def main():
         "lr": [0.0001, 0.001],
         "hidden_units": [64, 128],
         "num_blocks": [3],
-        "dropout_rate": [0.3, 0.5],
-        "batch_size": [64, 128, 256],
+        "dropout_rate": [0.3],
+        "batch_size": [256],
         "maxlen": [100],
         "num_heads": [1],
+        "alpha": [0.1, 0.25, 0.5],
+        "beta": [0.1, 0.25, 0.5],
     }
     base_cmd = [
         sys.executable,

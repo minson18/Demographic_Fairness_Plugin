@@ -13,6 +13,40 @@ import os
 import json
 
 
+def binary_quantile_loss(pos_logits, neg_logits, mask, q=0.8, positive_weight=0.7):
+    pred_pos = torch.sigmoid(pos_logits)
+    pred_neg = torch.sigmoid(neg_logits)
+
+    y_pos = torch.ones_like(pos_logits)
+    y_neg = torch.zeros_like(neg_logits)
+
+    pos_error = y_pos - pred_pos
+    neg_error = y_neg - pred_neg
+
+    pos_loss = torch.max(q * pos_error, (q - 1) * pos_error) * mask
+    neg_loss = torch.max(q * neg_error, (q - 1) * neg_error) * mask
+
+    total_loss = (
+        positive_weight * pos_loss.sum() + (1 - positive_weight) * neg_loss.sum()
+    )
+
+    return total_loss / mask.sum()
+
+
+def ranking_quantile_loss(pos_logits, neg_logits, mask, q=0.8):
+    # pos_logits, neg_logits: (batch, maxlen)
+    # mask: (batch, maxlen) → 1 = valid, 0 = pad
+
+    margin = 1.0
+    diff = pos_logits - neg_logits  # (batch, maxlen)
+    error = margin - diff  # Higher when pos < neg
+
+    quantile_loss = torch.max(q * error, (q - 1) * error)
+    masked_loss = quantile_loss * mask
+
+    return masked_loss.sum() / mask.sum()
+
+
 def bce_loss(pos_logits, neg_logits, mask):
     # mask: (batch, maxlen), float tensor (1 for valid, 0 for pad)
     loss = (
@@ -22,7 +56,7 @@ def bce_loss(pos_logits, neg_logits, mask):
     return loss.sum() / mask.sum()
 
 
-def train_one_epoch(model, dataloader, optimizer, device):
+def train_one_epoch(model, dataloader, optimizer, device, alpha=0.05, beta=0.2):
     model.train()
     total_loss = 0
     for batch in tqdm(dataloader, desc="Train", leave=False):
@@ -43,7 +77,18 @@ def train_one_epoch(model, dataloader, optimizer, device):
             batch["negcxt"],
         )
         mask = (batch["seq"] != 0).float()
-        loss = bce_loss(pos_logits, neg_logits, mask)
+
+        # Combine three different losses together with ratio
+        BCEloss = bce_loss(pos_logits, neg_logits, mask)
+        quantile_loss = binary_quantile_loss(
+            pos_logits, neg_logits, mask, q=0.8, positive_weight=0.7
+        )
+        quantile_loss_rank = ranking_quantile_loss(pos_logits, neg_logits, mask, q=0.8)
+        loss = (
+            BCEloss * (1 - alpha - beta)
+            + quantile_loss * alpha
+            + quantile_loss_rank * beta
+        )
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -85,7 +130,12 @@ def train():
         "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
     )
     parser.add_argument("--model_dir", type=str, default=None)
+
+    # For KUAISHOU
+    parser.add_argument("--alpha", type=float, default=0.2)  # for quantile loss
+    parser.add_argument("--beta", type=float, default=0.2)  # for ranking quantile loss
     args, _ = parser.parse_known_args()
+
     # Log training parameters
     print("Training parameters:")
     print(f"  Dataset: {args.dataset}")
@@ -102,6 +152,8 @@ def train():
     print(f"  Use residual: {args.use_res}")
     print(f"  Device: {args.device}")
     print(f"  Save directory: {args.model_dir}")
+    print(f"  Alpha: {args.alpha}")
+    print(f"  Beta: {args.beta}")
     print()
     (
         user_train,
@@ -163,7 +215,9 @@ def train():
 
     best_ndcg20 = -1
     for epoch in range(1, args.num_epochs + 1):
-        loss = train_one_epoch(model, dataloader, optimizer, args.device)
+        loss = train_one_epoch(
+            model, dataloader, optimizer, args.device, args.alpha, args.beta
+        )
         print(f"Epoch {epoch}, Loss: {loss:.4f}")
         # Evaluate every 10 epochs
         if epoch % 10 == 0:
