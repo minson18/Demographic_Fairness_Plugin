@@ -35,6 +35,22 @@ def test():
     parser.add_argument("--l2_emb", type=float, default=0.0001)
     parser.add_argument("--cxt_size", type=int, default=6)
     parser.add_argument("--use_res", type=bool, default=True)
+    parser.add_argument(
+        "--use_fairness", action="store_true", help="Enable universal fairness"
+    )
+    parser.add_argument(
+        "--fairness_lambda",
+        type=float,
+        default=0.0,
+        help="Weight for fairness loss (0 to disable, >0 to enable)",
+    )
+    parser.add_argument(
+        "--sensitive_indices",
+        nargs="+",
+        type=int,
+        default=[0, 1],
+        help="Indices of sensitive attributes in user features",
+    )
     args, _ = parser.parse_known_args()
 
     print("[INFO] Starting test.py")
@@ -93,6 +109,9 @@ def test():
         l2_emb=args.l2_emb,
         cxt_size=args.cxt_size,
         use_res=args.use_res,
+        use_fairness=args.use_fairness,
+        fairness_lambda=args.fairness_lambda,
+        sensitive_indices=args.sensitive_indices,
     )
     model = CARCA(
         usernum,
