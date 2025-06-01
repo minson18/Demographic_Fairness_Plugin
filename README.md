@@ -65,6 +65,14 @@ All additional arguments are passed to the respective train or test scripts.
   ```
   - You can also use `--model_path` to specify a direct path to a model file.
 
+### **Apply Quantile Loss**
+
+- **Run with Quantile Loss**
+  ```bash
+  python train_quantile_2.py --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20 --alpha 0.05 --beta 0.2
+  ```
+- Total of three loss functions are used: BCE Loss, Quantile Loss, and Ranking Quantile Loss(For balancing and better performance in metrics). The ratio of the three loss is 1-alpha-beta:alpha:beta, where alpha and beta are params.
+
 ### **Grid Search (Hyperparameter Tuning)**
 
 - **Run grid search:**
