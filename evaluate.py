@@ -451,6 +451,8 @@ class Evaluator:
                     user_feat = self.user_features[u - 1]
                     original_occ_idx = np.argmax(user_feat[3 : 3 + num_occ])
                     choices = [i for i in range(num_occ) if i != original_occ_idx]
+                    ###
+                    print(choices)
                     new_occ_idx = np.random.choice(choices)
                     swapped_occs.append(new_occ_idx)
                 batch_occ_scores = []

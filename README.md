@@ -91,23 +91,6 @@ python test.py --dataset ml-1m --maxlen 100 --model_dir saved_models/ml-1m
 python test.py --dataset ml-1m --maxlen 100 --model_path saved_models/ml-1m/best_model.pth
 ```
 
-### **Fairness Experimentation**
-
-Use `fair_train.py` for systematic fairness experiments:
-
-```bash
-# Single fairness experiment
-python fair_train.py --lambdas 0.1 --dataset ml-1m --epochs 20
-
-# Compare multiple fairness levels
-python fair_train.py --lambdas 0.0 0.1 0.5 1.0 --dataset ml-1m --epochs 20
-```
-
-This automatically:
-- Trains models with different fairness regularization strengths
-- Evaluates both accuracy and fairness metrics
-- Generates comparative analysis and summary tables
-- Saves results with timestamps for reproducibility
 
 ### **Hyperparameter Optimization**
 
@@ -254,7 +237,6 @@ print(f'User 123 rated item 4567: {rating}')
 - `main.py`: Unified controller for training/testing workflows
 - `grid_search.py`: Hyperparameter optimization with experiment tracking
 - `grid_search_multi_gpu.py`: Multi-GPU distributed grid search
-- `fair_train.py`: Fairness experimentation and comparison utilities
 
 ### Data Processing
 - `RawData/preprocess_ml1m.py`: MovieLens 1M preprocessing pipeline
