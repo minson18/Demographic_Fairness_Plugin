@@ -5,6 +5,10 @@ import json
 import csv
 import sys
 from datetime import datetime
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("grid_search")
 
 
 def run_grid_search(param_grid, base_cmd, save_dir_prefix):
@@ -17,7 +21,7 @@ def run_grid_search(param_grid, base_cmd, save_dir_prefix):
         cmd = base_cmd + ["--model_dir", save_dir]
         for k, v in params.items():
             cmd += [f"--{k}", str(v)]
-        print(f"Running: {' '.join(cmd)}")
+        logger.info(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         metrics_path = os.path.join(save_dir, "val_metrics.json")
         all_metrics = {}
@@ -35,7 +39,7 @@ def run_grid_search(param_grid, base_cmd, save_dir_prefix):
                 "save_dir": save_dir,
             }
         )
-        print(f"Params: {params}, Best NDCG@20: {best_ndcg}")
+        logger.info(f"Params: {params}, Best NDCG@20: {best_ndcg}")
     return results
 
 
@@ -67,7 +71,7 @@ def retrain_and_test_best(
     best_params_path = os.path.join(retrain_dir, "best_params.json")
     with open(best_params_path, "w") as f:
         json.dump(best_params, f, indent=2)
-    print(f"Retraining best model: {' '.join(retrain_cmd)}")
+    logger.info(f"Retraining best model: {' '.join(retrain_cmd)}")
     retrain_log_path = os.path.join(retrain_dir, "job.log")
     with open(retrain_log_path, "w") as retrain_log_file:
         subprocess.run(
@@ -85,7 +89,7 @@ def retrain_and_test_best(
     # Pass best params to test script as well
     for k, v in best_params.items():
         test_cmd += [f"--{k}", str(v)]
-    print(f"Testing best model: {' '.join(test_cmd)}")
+    logger.info(f"Testing best model: {' '.join(test_cmd)}")
     test_log_path = os.path.join(retrain_dir, "test.log")
     with open(test_log_path, "w") as test_log_file:
         subprocess.run(
@@ -141,7 +145,7 @@ def main():
         results, key=lambda x: x["ndcg@20"] if x["ndcg@20"] is not None else -1
     )
     best_params = best_entry["params"]
-    print(f"Best hyperparameters: {best_params}")
+    logger.info(f"Best hyperparameters: {best_params}")
     # 4. Retrain best and test
     retrain_and_test_best(best_params, base_cmd, save_dir_prefix, dataset, test_py_path)
 

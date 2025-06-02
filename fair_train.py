@@ -9,6 +9,10 @@ from train import train as train_func
 import json
 import sys
 from datetime import datetime
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("fair_train")
 
 
 def run_fair_training(
@@ -36,11 +40,11 @@ def run_fair_training(
     sys.argv.append(f"--model_dir={save_dir}")
 
     # Log experiment settings
-    print(f"Starting fairness-aware training with lambda={fairness_lambda}")
-    print(
+    logger.info(f"Starting fairness-aware training with lambda={fairness_lambda}")
+    logger.info(
         f"Dataset: {dataset}, Max length: {maxlen}, Batch size: {batch_size}, Epochs: {epochs}"
     )
-    print(f"Results will be saved to: {save_dir}")
+    logger.info(f"Results will be saved to: {save_dir}")
 
     # Run training
     train_func()
@@ -54,9 +58,9 @@ def compare_fairness_lambdas(lambdas=[0.0, 0.1, 0.5, 1.0], dataset="ml-1m", epoc
     results = {}
 
     for fairness_lambda in lambdas:
-        print(f"\n{'='*80}")
-        print(f"Training with fairness_lambda = {fairness_lambda}")
-        print(f"{'='*80}\n")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"Training with fairness_lambda = {fairness_lambda}")
+        logger.info(f"{'='*80}\n")
 
         save_dir = run_fair_training(fairness_lambda, dataset, epochs=epochs)
 
@@ -81,20 +85,20 @@ def compare_fairness_lambdas(lambdas=[0.0, 0.1, 0.5, 1.0], dataset="ml-1m", epoc
         json.dump(results, f, indent=2)
 
     # Print comparative table
-    print("\nResults Comparison:")
-    print(
+    logger.info("\nResults Comparison:")
+    logger.info(
         f"{'Lambda':10} {'NDCG@20':10} {'Hit@20':10} {'Gender DP':10} {'Age DP':10} {'Occ DP':10}"
     )
-    print(f"{'-'*70}")
+    logger.info(f"{'-'*70}")
 
     for lambda_val, metrics in results.items():
-        print(
+        logger.info(
             f"{lambda_val:<10.2f} {metrics['ndcg@20']:<10.4f} {metrics['hit@20']:<10.4f} "
             f"{metrics['distance_gender']:<10.4f} {metrics['distance_age']:<10.4f} "
             f"{metrics['distance_occupation']:<10.4f}"
         )
 
-    print(f"\nDetailed results saved to: {summary_path}")
+    logger.info(f"\nDetailed results saved to: {summary_path}")
 
 
 if __name__ == "__main__":

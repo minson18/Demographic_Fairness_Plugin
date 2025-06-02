@@ -399,38 +399,33 @@ class Evaluator:
         """
         Print a summary table of NDCG, Hit, MRR, and fairness metrics if present.
         """
-        print("  |   k   | NDCG  | Hit   |  MRR  |", flush=True)
-        print("  |-------|-------|-------|-------|", flush=True)
+        logger.info("  |   k   | NDCG  | Hit   |  MRR  |")
+        logger.info("  |-------|-------|-------|-------|")
         for k in [1, 5, 10, 20]:
-            print(
-                f"  | {k:<5} | {metrics.get(f'ndcg@{k}', 0):.4f} | {metrics.get(f'hit@{k}', 0):.4f} | {metrics.get(f'mrr@{k}', 0):.4f} |",
-                flush=True,
+            logger.info(
+                f"  | {k:<5} | {metrics.get(f'ndcg@{k}', 0):.4f} | {metrics.get(f'hit@{k}', 0):.4f} | {metrics.get(f'mrr@{k}', 0):.4f} |"
             )
-        print("  |-------|-------|-------|-------|", flush=True)
+        logger.info("  |-------|-------|-------|-------|")
         # Print fairness metrics if present
         if "distance_gender" in metrics:
-            print(f"  Distance (gender): {metrics['distance_gender']:.4f}", flush=True)
+            logger.info(f"  Distance (gender): {metrics['distance_gender']:.4f}")
         if "distance_age" in metrics:
-            print(f"  Distance (age): {metrics['distance_age']:.4f}", flush=True)
+            logger.info(f"  Distance (age): {metrics['distance_age']:.4f}")
         for k in [1, 5, 10, 20]:
             if f"delta_ndcg_gender@{k}" in metrics:
-                print(
-                    f"  Delta NDCG (gender)@{k}: {metrics[f'delta_ndcg_gender@{k}']:.4f}",
-                    flush=True,
+                logger.info(
+                    f"  Delta NDCG (gender)@{k}: {metrics[f'delta_ndcg_gender@{k}']:.4f}"
                 )
             if f"delta_ndcg_age@{k}" in metrics:
-                print(
-                    f"  Delta NDCG (age)@{k}: {metrics[f'delta_ndcg_age@{k}']:.4f}",
-                    flush=True,
+                logger.info(
+                    f"  Delta NDCG (age)@{k}: {metrics[f'delta_ndcg_age@{k}']:.4f}"
                 )
         if "distance_occupation" in metrics:
-            print(
-                f"  Distance (occupation): {metrics['distance_occupation']:.4f}",
-                flush=True,
+            logger.info(
+                f"  Distance (occupation): {metrics['distance_occupation']:.4f}"
             )
         for k in [1, 5, 10, 20]:
             if f"delta_ndcg_occupation@{k}" in metrics:
-                print(
-                    f"  Delta NDCG (occupation)@{k}: {metrics[f'delta_ndcg_occupation@{k}']:.4f}",
-                    flush=True,
+                logger.info(
+                    f"  Delta NDCG (occupation)@{k}: {metrics[f'delta_ndcg_occupation@{k}']:.4f}"
                 )

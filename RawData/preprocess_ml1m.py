@@ -5,6 +5,10 @@ import pickle
 from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
 import json
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("preprocess_ml1m")
 
 
 def load_data(data_dir):
@@ -52,7 +56,7 @@ def encode_genre(genres, genre2idx):
 
 
 def build_title_embeddings(movies):
-    print("Encoding movie titles...")
+    logger.info("Encoding movie titles...")
     model = SentenceTransformer("all-MiniLM-L6-v2")
     titles = movies["Title"].tolist()
     title_embs = model.encode(
@@ -229,7 +233,7 @@ def main():
     ratings_matrix, userid2idx, itemid2col = build_ratings_matrix(
         ratings, users, movies, OUT_DIR
     )
-    print("Preprocessing complete. Files saved in", OUT_DIR)
+    logger.info(f"Preprocessing complete. Files saved in {OUT_DIR}")
 
 
 if __name__ == "__main__":

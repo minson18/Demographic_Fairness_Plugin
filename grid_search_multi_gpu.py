@@ -6,6 +6,7 @@ import csv
 import sys
 from datetime import datetime
 import time
+import logging
 
 """
 Must set following environment variables to run grid search:
@@ -13,6 +14,9 @@ export OMP_NUM_THREADS=16
 export MKL_NUM_THREADS=16
 export OPENBLAS_NUM_THREADS=16
 """
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("grid_search_multi_gpu")
 
 
 def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=None):
@@ -38,7 +42,7 @@ def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=No
         cmd = base_cmd + ["--model_dir", save_dir]
         for k, v in params.items():
             cmd += [f"--{k}", str(v)]
-        print(f"[Job {i+1}/{total_jobs}] Launching on GPU {gpu_id}: {params}")
+        logger.info(f"[Job {i+1}/{total_jobs}] Launching on GPU {gpu_id}: {params}")
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)  # Only expose one GPU per process
         env["SELECTED_GPU_INDEX"] = str(gpu_id)  # for debugging, not used by torch
@@ -70,11 +74,11 @@ def run_grid_search_multi_gpu(param_grid, base_cmd, save_dir_prefix, num_gpus=No
                         "save_dir": save_dir,
                     }
                 )
-                print(
+                logger.info(
                     f"[Job {idx+1}/{total_jobs}] Finished. Params: {params}, Best NDCG@20: {best_ndcg}"
                 )
             completed_jobs += len(proc_infos)
-            print(f"Progress: {completed_jobs}/{total_jobs} jobs completed.")
+            logger.info(f"Progress: {completed_jobs}/{total_jobs} jobs completed.")
             procs = []
             proc_infos = []
             # Optional: short sleep to avoid race conditions
@@ -110,7 +114,7 @@ def retrain_and_test_best(
     best_params_path = os.path.join(retrain_dir, "best_params.json")
     with open(best_params_path, "w") as f:
         json.dump(best_params, f, indent=2)
-    print(f"Retraining best model: {' '.join(retrain_cmd)}")
+    logger.info(f"Retraining best model: {' '.join(retrain_cmd)}")
     retrain_log_path = os.path.join(retrain_dir, "job.log")
     with open(retrain_log_path, "w") as retrain_log_file:
         subprocess.run(
@@ -128,7 +132,7 @@ def retrain_and_test_best(
     # Pass best params to test script as well
     for k, v in best_params.items():
         test_cmd += [f"--{k}", str(v)]
-    print(f"Testing best model: {' '.join(test_cmd)}")
+    logger.info(f"Testing best model: {' '.join(test_cmd)}")
     test_log_path = os.path.join(retrain_dir, "test.log")
     with open(test_log_path, "w") as test_log_file:
         subprocess.run(
@@ -150,9 +154,9 @@ def main(num_gpus=4):
         "batch_size": [256],
         "maxlen": [100],
         "num_heads": [1],
-        "fairness_lambda": [0.1, 0.3],
-        "alpha": [0.1, 0.25, 0.5],
-        "beta": [0.1, 0.25, 0.5],
+        "fairness_lambda": [0.3, 0.5],
+        "alpha": [0.1],
+        "beta": [0.1, 0.25],
     }
     base_cmd = [
         sys.executable,
@@ -186,7 +190,7 @@ def main(num_gpus=4):
         results, key=lambda x: x["ndcg@20"] if x["ndcg@20"] is not None else -1
     )
     best_params = best_entry["params"]
-    print(f"Best hyperparameters: {best_params}")
+    logger.info(f"Best hyperparameters: {best_params}")
     # 4. Retrain best and test
     retrain_and_test_best(best_params, base_cmd, save_dir_prefix, dataset, test_py_path)
 

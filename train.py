@@ -11,6 +11,7 @@ from model import CARCA
 from evaluate import Evaluator
 import os
 import json
+import logging
 
 
 def binary_quantile_loss(pos_logits, neg_logits, mask, q=0.8, positive_weight=0.7):
@@ -179,27 +180,29 @@ def train():
     args, _ = parser.parse_known_args()
 
     # Log training parameters
-    print("Training parameters:")
-    print(f"  Dataset: {args.dataset}")
-    print(f"  Batch size: {args.batch_size}")
-    print(f"  Learning rate: {args.lr}")
-    print(f"  Max sequence length: {args.maxlen}")
-    print(f"  Hidden units: {args.hidden_units}")
-    print(f"  Number of blocks: {args.num_blocks}")
-    print(f"  Number of epochs: {args.num_epochs}")
-    print(f"  Number of heads: {args.num_heads}")
-    print(f"  Dropout rate: {args.dropout_rate}")
-    print(f"  L2 regularization: {args.l2_emb}")
-    print(f"  Context size: {args.cxt_size}")
-    print(f"  Use residual: {args.use_res}")
-    print(f"  Device: {args.device}")
-    print(f"  Save directory: {args.model_dir}")
-    print(f"  Fairness enabled: {args.use_fairness}")
-    print(f"  Fairness lambda: {args.fairness_lambda}")
-    print(f"  Sensitive attribute indices: {args.sensitive_indices}")
-    print(f"  Alpha: {args.alpha}")
-    print(f"  Beta: {args.beta}")
-    print()
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("train")
+    logger.info("Training parameters:")
+    logger.info(f"  Dataset: {args.dataset}")
+    logger.info(f"  Batch size: {args.batch_size}")
+    logger.info(f"  Learning rate: {args.lr}")
+    logger.info(f"  Max sequence length: {args.maxlen}")
+    logger.info(f"  Hidden units: {args.hidden_units}")
+    logger.info(f"  Number of blocks: {args.num_blocks}")
+    logger.info(f"  Number of epochs: {args.num_epochs}")
+    logger.info(f"  Number of heads: {args.num_heads}")
+    logger.info(f"  Dropout rate: {args.dropout_rate}")
+    logger.info(f"  L2 regularization: {args.l2_emb}")
+    logger.info(f"  Context size: {args.cxt_size}")
+    logger.info(f"  Use residual: {args.use_res}")
+    logger.info(f"  Device: {args.device}")
+    logger.info(f"  Save directory: {args.model_dir}")
+    logger.info(f"  Fairness enabled: {args.use_fairness}")
+    logger.info(f"  Fairness lambda: {args.fairness_lambda}")
+    logger.info(f"  Sensitive attribute indices: {args.sensitive_indices}")
+    logger.info(f"  Alpha: {args.alpha}")
+    logger.info(f"  Beta: {args.beta}")
+    logger.info("")
 
     (
         user_train,
@@ -271,7 +274,7 @@ def train():
             args.alpha,
             args.beta,
         )
-        print(
+        logger.info(
             f"Epoch {epoch}, Total Loss: {loss:.4f}, Task Loss: {task_loss:.4f}, Fairness Loss: {fairness_loss:.4f}"
         )
 
@@ -286,7 +289,7 @@ def train():
                 candidate_chunk_size=200,
                 fairness_metrics=True,  # Always evaluate fairness metrics
             )
-            print("Validation metrics (30% subset):")
+            logger.info("Validation metrics (30% subset):")
             Evaluator.print_metrics_table(metrics)
             ndcg20 = metrics["ndcg@20"]
 
@@ -310,7 +313,7 @@ def train():
                 if combined_score > best_ndcg20:
                     best_ndcg20 = combined_score
                     torch.save(model.state_dict(), best_model_path)
-                    print(
+                    logger.info(
                         f"Best model saved at epoch {epoch} with combined score: {combined_score:.4f} (NDCG@20: {ndcg20:.4f}, Fairness: {fairness_score:.4f})"
                     )
             else:
@@ -318,14 +321,14 @@ def train():
                 if ndcg20 > best_ndcg20:
                     best_ndcg20 = ndcg20
                     torch.save(model.state_dict(), best_model_path)
-                    print(
+                    logger.info(
                         f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}"
                     )
 
     if args.use_fairness:
-        print(f"Best Combined Score: {best_ndcg20:.4f}")
+        logger.info(f"Best Combined Score: {best_ndcg20:.4f}")
     else:
-        print(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
+        logger.info(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
 
     # Load the best model before final validation evaluation
     model.load_state_dict(torch.load(best_model_path, map_location=args.device))
