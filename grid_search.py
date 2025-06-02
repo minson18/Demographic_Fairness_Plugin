@@ -77,10 +77,19 @@ def retrain_and_test_best(
     test_cmd = [
         sys.executable,
         test_py_path,
-        "--model_dir",
-        retrain_dir,
         "--dataset",
         dataset,
+        "--cxt_size",
+        "6",
+        "--device",
+        "cuda",
+        "--use_fairness",
+        "--sensitive_indices",
+        "0",
+        "1",
+        "3",
+        "--model_dir",
+        retrain_dir,
     ]
     # Pass best params to test script as well
     for k, v in best_params.items():
