@@ -9,14 +9,14 @@
 
 ## About This Repository
 
-This is a comprehensive PyTorch implementation of the CARCA (Context- and Attribute-aware Recommendation with Contextualized Attention) system for sequential recommendation, extended with advanced fairness-aware training capabilities. Originally migrated from the [CARCA](https://github.com/ahmedrashed57/CARCA) repository, this implementation supports both Amazon datasets and MovieLens 1M with unified data loading, preprocessing, and comprehensive fairness evaluation.
+This repository provides a comprehensive PyTorch implementation of the CARCA (Context- and Attribute-aware Recommendation with Contextualized Attention) system for sequential recommendation, extended with advanced fairness-aware training capabilities. It is migrated from the [original CARCA repository](https://github.com/ahmedrashed57/CARCA) and supports both Amazon datasets and MovieLens 1M, offering unified data loading, preprocessing, and fairness evaluation.
 
 ### Key Features
-- **Context- and Attribute-aware Sequential Recommendation**: Multi-modal recommendation using user features, item features, and contextual information
-- **Fairness-aware Training (CUFRL)**: Universal fairness regularization with controllable demographic parity constraints
-- **Multi-GPU Grid Search**: Distributed hyperparameter optimization with automatic experiment management
-- **Comprehensive Evaluation**: Standard metrics (NDCG, Hit Rate, MRR) plus fairness metrics (Demographic Parity, Delta NDCG)
-- **Unified Data Pipeline**: Support for both Amazon and MovieLens datasets with consistent preprocessing
+- **Context- and Attribute-aware Sequential Recommendation**: Multi-modal recommendation using user features, item features, and contextual information.
+- **Fairness-aware Training (CUFRL)**: Universal fairness regularization with controllable demographic parity constraints.
+- **Multi-GPU Grid Search**: Distributed hyperparameter optimization with automatic experiment management.
+- **Comprehensive Evaluation**: Standard metrics (NDCG, Hit Rate, MRR) plus fairness metrics (Demographic Parity, Delta NDCG).
+- **Unified Data Pipeline**: Support for both Amazon and MovieLens datasets with consistent preprocessing.
 
 ---
 
@@ -31,7 +31,7 @@ pip install -r requirements.txt
 
 #### MovieLens 1M (Recommended for Testing)
 **Option A: Download and Preprocess**
-1. Download [MovieLens 1M](https://grouplens.org/datasets/movielens/1m/) and place in `RawData/ml-1m/`
+1. Download [MovieLens 1M](https://grouplens.org/datasets/movielens/1m/) and place it in `RawData/ml-1m/`.
 2. Run preprocessing:
    ```bash
    python RawData/preprocess_ml1m.py
@@ -39,16 +39,24 @@ pip install -r requirements.txt
    This creates `Data/movielens_preprocessed/` with all necessary files.
 
 **Option B: Use Preprocessed Data**
-Download preprocessed data from [Google Drive](https://drive.google.com/drive/folders/1Cy1c3vGwSKgjLT0u-8ERqBVq_Y5bauaM?usp=sharing), unzip `movielens_preprocessed.zip`, and place in `Data/` directory.
+Download preprocessed data from [Google Drive](https://drive.google.com/drive/folders/1Cy1c3vGwSKgjLT0u-8ERqBVq_Y5bauaM?usp=sharing), unzip `movielens_preprocessed.zip`, and place it in the `Data/` directory.
 
 #### Amazon Datasets
-Download/preprocess as in the original CARCA repository and place in `Data/`.
+Download and preprocess as in the original CARCA repository and place the results in `Data/`.
 
 ---
 
 ## Training, Testing, and Experiment Management
 
-### **Quick Start with main.py (Recommended)**
+### Quick Start with `main.py` (Recommended)
+The training loss is a weighted sum of three components: BCE Loss, Quantile Loss, and Ranking Quantile Loss. You can control the weights of quantile and ranking quantile loss using the `--alpha` and `--beta` arguments. The loss ratio is `1-alpha-beta : alpha : beta`.
+
+**Example:**
+```bash
+python main.py --mode train --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20 --alpha 0.05 --beta 0.2
+```
+
+The training loss is a weighted sum of three components: BCE Loss, Quantile Loss, and Ranking Quantile Loss. You can control the weights of quantile and ranking quantile loss using the `--alpha` and `--beta` arguments. The loss ratio is `1-alpha-beta : alpha : beta`.
 
 `main.py` provides a unified interface for all training and testing operations:
 
@@ -63,7 +71,7 @@ python main.py --mode test --dataset ml-1m --maxlen 100 --model_dir saved_models
 python main.py --mode both --dataset ml-1m --maxlen 100 --batch_size 128 --num_epochs 20
 ```
 
-### **Direct Script Usage**
+### Direct Script Usage
 
 #### Standard Training
 ```bash
@@ -91,7 +99,7 @@ python test.py --dataset ml-1m --maxlen 100 --model_dir saved_models/ml-1m
 python test.py --dataset ml-1m --maxlen 100 --model_path saved_models/ml-1m/best_model.pth
 ```
 
-### **Fairness Experimentation**
+### Fairness Experimentation
 
 Use `fair_train.py` for systematic fairness experiments:
 
@@ -103,13 +111,13 @@ python fair_train.py --lambdas 0.1 --dataset ml-1m --epochs 20
 python fair_train.py --lambdas 0.0 0.1 0.5 1.0 --dataset ml-1m --epochs 20
 ```
 
-This automatically:
-- Trains models with different fairness regularization strengths
-- Evaluates both accuracy and fairness metrics
-- Generates comparative analysis and summary tables
-- Saves results with timestamps for reproducibility
+This will:
+- Train models with different fairness regularization strengths
+- Evaluate both accuracy and fairness metrics
+- Generate comparative analysis and summary tables
+- Save results with timestamps for reproducibility
 
-### **Hyperparameter Optimization**
+### Hyperparameter Optimization
 
 #### Standard Grid Search
 ```bash
@@ -328,7 +336,7 @@ python train.py --dataset ml-1m --maxlen 100 --batch_size 128 --lr 0.0001 \
 
 ### Dataset Handling
 - **Robust Negative Sampling**: Handles edge cases where users have seen all items
-- **Efficient ID Mapping**: Optimized mapping between original IDs and internal indices  
+- **Efficient ID Mapping**: Optimized mapping between original IDs and internal indices
 - **Context Alignment**: Correct temporal alignment of contexts with sequence positions
 - **Memory Optimization**: Tensor caching and chunked processing for large-scale evaluation
 

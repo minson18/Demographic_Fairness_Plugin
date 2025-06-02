@@ -13,6 +13,40 @@ import os
 import json
 
 
+def binary_quantile_loss(pos_logits, neg_logits, mask, q=0.8, positive_weight=0.7):
+    pred_pos = torch.sigmoid(pos_logits)
+    pred_neg = torch.sigmoid(neg_logits)
+
+    y_pos = torch.ones_like(pos_logits)
+    y_neg = torch.zeros_like(neg_logits)
+
+    pos_error = y_pos - pred_pos
+    neg_error = y_neg - pred_neg
+
+    pos_loss = torch.max(q * pos_error, (q - 1) * pos_error) * mask
+    neg_loss = torch.max(q * neg_error, (q - 1) * neg_error) * mask
+
+    total_loss = (
+        positive_weight * pos_loss.sum() + (1 - positive_weight) * neg_loss.sum()
+    )
+
+    return total_loss / mask.sum()
+
+
+def ranking_quantile_loss(pos_logits, neg_logits, mask, q=0.8):
+    # pos_logits, neg_logits: (batch, maxlen)
+    # mask: (batch, maxlen) → 1 = valid, 0 = pad
+
+    margin = 1.0
+    diff = pos_logits - neg_logits  # (batch, maxlen)
+    error = margin - diff  # Higher when pos < neg
+
+    quantile_loss = torch.max(q * error, (q - 1) * error)
+    masked_loss = quantile_loss * mask
+
+    return masked_loss.sum() / mask.sum()
+
+
 def bce_loss(pos_logits, neg_logits, mask):
     # mask: (batch, maxlen), float tensor (1 for valid, 0 for pad)
     loss = (
@@ -22,7 +56,9 @@ def bce_loss(pos_logits, neg_logits, mask):
     return loss.sum() / mask.sum()
 
 
-def train_one_epoch(model, dataloader, optimizer, device, fairness_lambda=0.0):
+def train_one_epoch(
+    model, dataloader, optimizer, device, fairness_lambda=0.0, alpha=0.05, beta=0.2
+):
     model.train()
     total_loss = 0
     task_loss_sum = 0
@@ -46,7 +82,17 @@ def train_one_epoch(model, dataloader, optimizer, device, fairness_lambda=0.0):
             batch["negcxt"],
         )
         mask = (batch["seq"] != 0).float()
-        task_loss = bce_loss(pos_logits, neg_logits, mask)
+
+        BCEloss = bce_loss(pos_logits, neg_logits, mask)
+        quantile_loss = binary_quantile_loss(
+            pos_logits, neg_logits, mask, q=0.8, positive_weight=0.7
+        )
+        quantile_loss_rank = ranking_quantile_loss(pos_logits, neg_logits, mask, q=0.8)
+        task_loss = (
+            BCEloss * (1 - alpha - beta)
+            + quantile_loss * alpha
+            + quantile_loss_rank * beta
+        )  # Combine three different losses together with ratio
 
         # Add fairness regularization if enabled
         fairness_loss = 0.0
@@ -126,6 +172,10 @@ def train():
         default=[0, 1],
         help="Indices of sensitive attributes in user features",
     )
+
+    # For KUAISHOU
+    parser.add_argument("--alpha", type=float, default=0.2)  # for quantile loss
+    parser.add_argument("--beta", type=float, default=0.2)  # for ranking quantile loss
     args, _ = parser.parse_known_args()
 
     # Log training parameters
@@ -147,6 +197,8 @@ def train():
     print(f"  Fairness enabled: {args.use_fairness}")
     print(f"  Fairness lambda: {args.fairness_lambda}")
     print(f"  Sensitive attribute indices: {args.sensitive_indices}")
+    print(f"  Alpha: {args.alpha}")
+    print(f"  Beta: {args.beta}")
     print()
 
     (
@@ -211,7 +263,13 @@ def train():
     best_ndcg20 = -1
     for epoch in range(1, args.num_epochs + 1):
         loss, task_loss, fairness_loss = train_one_epoch(
-            model, dataloader, optimizer, args.device, args.fairness_lambda
+            model,
+            dataloader,
+            optimizer,
+            args.device,
+            args.fairness_lambda,
+            args.alpha,
+            args.beta,
         )
         print(
             f"Epoch {epoch}, Total Loss: {loss:.4f}, Task Loss: {task_loss:.4f}, Fairness Loss: {fairness_loss:.4f}"
