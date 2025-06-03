@@ -22,16 +22,17 @@ class PositionalEncoding(nn.Module):
 
 class SensitiveAttributeDiscriminator(nn.Module):
     """
-    Discriminator network to estimate mutual information between 
+    Discriminator network to estimate mutual information between
     learned representations and sensitive attributes.
     """
+
     def __init__(self, hidden_dim, sens_attr_dim, layers=2):
         super().__init__()
-        self.layers = nn.ModuleList([
-            nn.Linear(hidden_dim, hidden_dim) for _ in range(layers-1)
-        ])
+        self.layers = nn.ModuleList(
+            [nn.Linear(hidden_dim, hidden_dim) for _ in range(layers - 1)]
+        )
         self.final = nn.Linear(hidden_dim, sens_attr_dim)
-        
+
     def forward(self, x):
         for layer in self.layers:
             x = F.relu(layer(x))
@@ -79,28 +80,33 @@ class CARCA(nn.Module):
             num_heads=args.num_heads,
             batch_first=True,
         )
-        
+
         # CUFRL additions for universal fairness
-        self.fairness_lambda = getattr(args, 'fairness_lambda', 0.0)
-        self.sens_indices = getattr(args, 'sensitive_indices', [0, 1])
-        
+        self.fairness_lambda = getattr(args, "fairness_lambda", 0.0)
+        self.sens_indices = getattr(args, "sensitive_indices", [0, 1])
+
         # Dynamically create discriminator networks only for specified sensitive attributes
         self.discriminators = nn.ModuleDict()
-        if hasattr(args, 'use_fairness') and args.use_fairness:
+        if hasattr(args, "use_fairness") and args.use_fairness:
             for idx in self.sens_indices:
                 if idx == 0:  # Gender (binary)
-                    self.discriminators[f'discriminator_{idx}'] = SensitiveAttributeDiscriminator(
-                        self.hidden_units, 1)
-                elif idx == 1:  # Age (7 groups) 
-                    self.discriminators[f'discriminator_{idx}'] = SensitiveAttributeDiscriminator(
-                        self.hidden_units, 7)
+                    self.discriminators[f"discriminator_{idx}"] = (
+                        SensitiveAttributeDiscriminator(self.hidden_units, 1)
+                    )
+                elif idx == 1:  # Age (7 groups)
+                    self.discriminators[f"discriminator_{idx}"] = (
+                        SensitiveAttributeDiscriminator(self.hidden_units, 7)
+                    )
                 elif idx >= 3:  # Occupation (one-hot encoded)
                     # For occupation, determine number of categories from user_feature_dim
                     # Assuming gender, age, zip take 3 features, rest are one-hot occupation
                     num_occupations = user_feature_dim - 3
                     if num_occupations > 0:
-                        self.discriminators[f'discriminator_{idx}'] = SensitiveAttributeDiscriminator(
-                            self.hidden_units, num_occupations)
+                        self.discriminators[f"discriminator_{idx}"] = (
+                            SensitiveAttributeDiscriminator(
+                                self.hidden_units, num_occupations
+                            )
+                        )
 
     def forward(
         self,
@@ -162,12 +168,12 @@ class CARCA(nn.Module):
         pos_logits = self.final_linear(pos_attn_out).squeeze(-1)
         neg_attn_out, _ = self.attn(neg_out, seq_out, seq_out)
         neg_logits = self.final_linear(neg_attn_out).squeeze(-1)
-        
+
         # For fairness evaluation and training - get user embeddings
         user_repr = user_emb
-        
+
         return pos_logits, neg_logits, user_repr
-    
+
     def compute_fairness_loss(self, user_repr, user_feat):
         """
         Calculate fairness loss using mutual information estimators via discriminators
@@ -175,33 +181,33 @@ class CARCA(nn.Module):
         """
         if len(self.discriminators) == 0:
             return 0.0
-            
+
         total_fairness_loss = 0.0
-        
+
         for idx in self.sens_indices:
-            discriminator_key = f'discriminator_{idx}'
+            discriminator_key = f"discriminator_{idx}"
             if discriminator_key not in self.discriminators:
                 continue
-                
+
             discriminator = self.discriminators[discriminator_key]
-            
+
             if idx == 0:  # Gender (binary)
                 gender = user_feat[:, 0:1]
                 gender_pred = discriminator(user_repr)
                 loss = F.binary_cross_entropy_with_logits(gender_pred, gender)
                 total_fairness_loss += loss
-                
+
             elif idx == 1:  # Age (categorical)
                 age = user_feat[:, 1].long()
                 age_pred = discriminator(user_repr)
                 loss = F.cross_entropy(age_pred, age)
                 total_fairness_loss += loss
-                
+
             elif idx >= 3:  # Occupation (one-hot)
                 # Occupations are one-hot, extract from user features (index 3+)
                 occ_indices = torch.argmax(user_feat[:, 3:], dim=1)
                 occ_pred = discriminator(user_repr)
                 loss = F.cross_entropy(occ_pred, occ_indices)
                 total_fairness_loss += loss
-        
-        return self.fairness_lambda * total_fairness_loss
+
+        return -self.fairness_lambda * total_fairness_loss
