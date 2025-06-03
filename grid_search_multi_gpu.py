@@ -152,14 +152,14 @@ def main(num_gpus=4):
     os.makedirs(unique_dir, exist_ok=True)
 
     param_grid = {
-        "lr": [0.0001, 0.001],
-        "hidden_units": [64, 128],
+        "lr": [0.0001],
+        "hidden_units": [64],
         "num_blocks": [3],
         "dropout_rate": [0.3],
         "batch_size": [256],
         "maxlen": [100],
         "num_heads": [1],
-        "fairness_lambda": [0.1, 0.3, 0.5],
+        "fairness_lambda": [0.01, 0.1, 0.25, 0.5],
     }
     base_cmd = [
         sys.executable,

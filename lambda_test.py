@@ -235,7 +235,7 @@ if __name__ == "__main__":
         "--lambdas",
         type=float,
         nargs="+",
-        default=[0.0, 0.1, 0.3, 0.5, 0.7, 1.0],
+        default=[0.0, 0.01, 0.1, 0.25, 0.5, 1.0],
         help="List of fairness lambda values to compare",
     )
     parser.add_argument(
