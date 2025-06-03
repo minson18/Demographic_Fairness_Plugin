@@ -165,7 +165,7 @@ def main(num_gpus=4):
         "batch_size": [256],
         "maxlen": [100],
         "num_heads": [1],
-        "fairness_lambda": [0.1, 0.3, 0.5],
+        "fairness_lambda": [0.01, 0.1, 0.25, 0.5],
         "alpha": [0.01, 0.05],
         "beta": [0.25],
     }
