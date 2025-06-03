@@ -156,8 +156,8 @@ def main(num_gpus=4):
     os.makedirs(unique_dir, exist_ok=True)
 
     param_grid = {
-        "lr": [0.0001, 0.001],
-        "hidden_units": [64, 128],
+        "lr": [0.0001],
+        "hidden_units": [64],
         "num_blocks": [3],
         "dropout_rate": [0.3],
         "batch_size": [256],
@@ -165,9 +165,9 @@ def main(num_gpus=4):
         "batch_size": [256],
         "maxlen": [100],
         "num_heads": [1],
-        "fairness_lambda": [0.3, 0.5],
-        "alpha": [0.1],
-        "beta": [0.1, 0.25],
+        "fairness_lambda": [0.1, 0.3, 0.5],
+        "alpha": [0.01, 0.05],
+        "beta": [0.25],
     }
     base_cmd = [
         sys.executable,
@@ -207,4 +207,4 @@ def main(num_gpus=4):
 
 
 if __name__ == "__main__":
-    main(num_gpus=4)
+    main(num_gpus=3)

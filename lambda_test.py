@@ -16,6 +16,10 @@ from train import train as train_func
 import multiprocessing
 import contextlib
 import argparse
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("lambda_test")
 
 # =====================
 # Experiment config
@@ -33,6 +37,8 @@ FIXED_PARAMS = {
     "cxt_size": 6,
     "device": "cuda",
     "sensitive_indices": "0,1,3",
+    "alpha": 0.01,
+    "beta": 0.25,
 }
 
 
@@ -91,8 +97,10 @@ def train_and_test_lambda(fairness_lambda, save_dir, gpu_id=None):
         f"--dropout_rate={FIXED_PARAMS['dropout_rate']}",
         f"--num_heads={FIXED_PARAMS['num_heads']}",
         f"--model_dir={save_dir}",
+        f"--alpha={FIXED_PARAMS['alpha']}",
+        f"--beta={FIXED_PARAMS['beta']}",
     ]
-    print(
+    logger.info(
         f"[GPU {gpu_id}] Training with lambda={fairness_lambda}, saving to {save_dir}"
     )
     train_func()
@@ -122,8 +130,12 @@ def train_and_test_lambda(fairness_lambda, save_dir, gpu_id=None):
         str(FIXED_PARAMS["dropout_rate"]),
         "--num_heads",
         str(FIXED_PARAMS["num_heads"]),
+        "--alpha",
+        str(FIXED_PARAMS["alpha"]),
+        "--beta",
+        str(FIXED_PARAMS["beta"]),
     ]
-    print(f"[GPU {gpu_id}] Running test.py for lambda={fairness_lambda}")
+    logger.info(f"[GPU {gpu_id}] Running test.py for lambda={fairness_lambda}")
     subprocess.run(test_cmd, check=True)
     test_metrics = load_json_metrics(os.path.join(save_dir, "test_metrics.json"))
     return fairness_lambda, test_metrics, save_dir
@@ -166,14 +178,16 @@ def run_fairness_lambdas_parallel(lambdas, gpu_ids=None, model_dir=None):
                 log_file
             ), contextlib.redirect_stderr(log_file):
                 try:
-                    print(
+                    logger.info(
                         f"[GPU {gpu_id}] Training with lambda={lam}, saving to {save_dir}"
                     )
                     lam_val, metrics, _ = train_and_test_lambda(lam, save_dir, gpu_id)
                     return_dict[lam_val] = metrics
-                    print(f"[GPU {gpu_id}] Finished lambda={lam}. Metrics: {metrics}")
+                    logger.info(
+                        f"[GPU {gpu_id}] Finished lambda={lam}. Metrics: {metrics}"
+                    )
                 except Exception as e:
-                    print(f"[GPU {gpu_id}] Error for lambda={lam}: {e}")
+                    logger.error(f"[GPU {gpu_id}] Error for lambda={lam}: {e}")
                     return_dict[lam] = {"error": str(e)}
 
         p = multiprocessing.Process(
@@ -186,13 +200,13 @@ def run_fairness_lambdas_parallel(lambdas, gpu_ids=None, model_dir=None):
             for job in jobs:
                 job.join()
                 completed_jobs += 1
-                print(f"Progress: {completed_jobs}/{total_jobs} jobs completed.")
+                logger.info(f"Progress: {completed_jobs}/{total_jobs} jobs completed.")
             jobs = []
     # Wait for any remaining jobs
     for job in jobs:
         job.join()
         completed_jobs += 1
-        print(f"Progress: {completed_jobs}/{total_jobs} jobs completed.")
+        logger.info(f"Progress: {completed_jobs}/{total_jobs} jobs completed.")
     test_results = dict(return_dict)
     all_keys = set(["lambda"])
     for metrics in test_results.values():
@@ -212,16 +226,18 @@ def run_fairness_lambdas_parallel(lambdas, gpu_ids=None, model_dir=None):
                 if k not in row:
                     row[k] = ""
             writer.writerow(row)
-    print("\nTest Results Comparison (Parallel):")
-    print(f"{'Lambda':10} " + " ".join([f"{k:10}" for k in all_keys if k != "lambda"]))
-    print(f"{'-'*70}")
+    logger.info("\nTest Results Comparison (Parallel):")
+    logger.info(
+        f"{'Lambda':10} " + " ".join([f"{k:10}" for k in all_keys if k != "lambda"])
+    )
+    logger.info(f"{'-'*70}")
     for lambda_val, metrics in test_results.items():
         row_str = f"{lambda_val:<10.2f} " + " ".join(
             [f"{metrics.get(k, '')!s:<10}" for k in all_keys if k != "lambda"]
         )
-        print(row_str)
-    print(f"\nDetailed test results saved to: {summary_path}")
-    print("Log files for each run are saved as job.log in each model directory.")
+        logger.info(row_str)
+    logger.info(f"\nDetailed test results saved to: {summary_path}")
+    logger.info("Log files for each run are saved as job.log in each model directory.")
 
 
 # =====================
