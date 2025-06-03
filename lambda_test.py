@@ -103,6 +103,8 @@ def train_and_test_lambda(fairness_lambda, save_dir, gpu_id=None):
         save_dir,
         "--dataset",
         FIXED_PARAMS["dataset"],
+        "--maxlen",
+        str(FIXED_PARAMS["maxlen"]),
         "--use_fairness",
         "--fairness_lambda",
         str(fairness_lambda),
@@ -119,6 +121,7 @@ def train_and_test_lambda(fairness_lambda, save_dir, gpu_id=None):
         "--dropout_rate",
         str(FIXED_PARAMS["dropout_rate"]),
         "--num_heads",
+        str(FIXED_PARAMS["num_heads"]),
     ]
     print(f"[GPU {gpu_id}] Running test.py for lambda={fairness_lambda}")
     subprocess.run(test_cmd, check=True)
@@ -152,7 +155,7 @@ def run_fairness_lambdas_parallel(lambdas, gpu_ids=None, model_dir=None):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         save_dir = os.path.join(
             model_dir,
-            f"fair_{FIXED_PARAMS['dataset']}_lambda{fairness_lambda}_{timestamp}",
+            f"fair_{FIXED_PARAMS['dataset']}_lambda{fairness_lambda}",
         )
         os.makedirs(save_dir, exist_ok=True)
         save_dirs.append(save_dir)
