@@ -298,10 +298,7 @@ def train():
                 torch.save(model.state_dict(), best_model_path)
                 print(f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}")
 
-    if args.use_fairness:
-        logger.info(f"Best Combined Score: {best_ndcg20:.4f}")
-    else:
-        logger.info(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
+    logger.info(f"Best Validation NDCG@20: {best_ndcg20:.4f}")
 
     # Load the best model before final validation evaluation
     model.load_state_dict(torch.load(best_model_path, map_location=args.device))
