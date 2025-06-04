@@ -158,6 +158,8 @@ def main(num_gpus=4):
     param_grid = {
         "lr": [0.0001],
         "hidden_units": [64],
+        "lr": [0.0001],
+        "hidden_units": [64],
         "num_blocks": [3],
         "dropout_rate": [0.3],
         "batch_size": [256],
@@ -207,4 +209,4 @@ def main(num_gpus=4):
 
 
 if __name__ == "__main__":
-    main(num_gpus=3)
+    main(num_gpus=4)

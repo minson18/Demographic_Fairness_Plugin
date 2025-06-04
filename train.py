@@ -287,43 +287,16 @@ def train():
                 k=20,
                 batch_size=32,
                 candidate_chunk_size=200,
-                fairness_metrics=True,  # Always evaluate fairness metrics
+                fairness_metrics=False,
             )
             logger.info("Validation metrics (30% subset):")
             Evaluator.print_metrics_table(metrics)
             ndcg20 = metrics["ndcg@20"]
 
-            # Optionally incorporate fairness into model selection criteria
-            if args.use_fairness and args.fairness_lambda > 0:
-                # Use a combined metric that considers both accuracy and fairness
-                fairness_score = 0
-                if "distance_gender" in metrics:
-                    fairness_score += metrics["distance_gender"]
-                if "distance_age" in metrics:
-                    fairness_score += metrics["distance_age"]
-                if "distance_occupation" in metrics:
-                    fairness_score += metrics["distance_occupation"]
-
-                # Normalize fairness score (lower is better)
-                fairness_score = fairness_score / 3 if fairness_score > 0 else 0
-
-                # Combined score: maximize NDCG, minimize fairness disparity
-                combined_score = ndcg20 - args.fairness_lambda * fairness_score
-
-                if combined_score > best_ndcg20:
-                    best_ndcg20 = combined_score
-                    torch.save(model.state_dict(), best_model_path)
-                    logger.info(
-                        f"Best model saved at epoch {epoch} with combined score: {combined_score:.4f} (NDCG@20: {ndcg20:.4f}, Fairness: {fairness_score:.4f})"
-                    )
-            else:
-                # Traditional model selection based on NDCG only
-                if ndcg20 > best_ndcg20:
-                    best_ndcg20 = ndcg20
-                    torch.save(model.state_dict(), best_model_path)
-                    logger.info(
-                        f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}"
-                    )
+            if ndcg20 > best_ndcg20:
+                best_ndcg20 = ndcg20
+                torch.save(model.state_dict(), best_model_path)
+                print(f"Best model saved at epoch {epoch} with NDCG@20: {ndcg20:.4f}")
 
     if args.use_fairness:
         logger.info(f"Best Combined Score: {best_ndcg20:.4f}")
@@ -341,7 +314,7 @@ def train():
         k=20,
         batch_size=32,
         candidate_chunk_size=200,
-        fairness_metrics=True,  # Always evaluate fairness for final metrics
+        fairness_metrics=False,
     )
     metrics_path = os.path.join(model_dir, "val_metrics.json")
     with open(metrics_path, "w") as f:
